@@ -1,4 +1,3 @@
-
 // Stronger XSS protection
 export const escapeHtml = (text: string) => {
   if (!text) return '';
@@ -26,6 +25,9 @@ export const parseBBCodeToHtml = (content: string) => {
     .replace(/\[u\](.*?)\[\/u\]/gi, '<u class="underline">$1</u>')
     .replace(/\[s\](.*?)\[\/s\]/gi, '<s class="line-through opacity-70">$1</s>')
     .replace(/\[center\]([\s\S]*?)\[\/center\]/gi, '<div class="text-center">$1</div>')
+    .replace(/\[left\]([\s\S]*?)\[\/left\]/gi, '<div class="text-left">$1</div>')
+    .replace(/\[right\]([\s\S]*?)\[\/right\]/gi, '<div class="text-right">$1</div>')
+    .replace(/\[justify\]([\s\S]*?)\[\/justify\]/gi, '<div class="text-justify">$1</div>')
     .replace(/\[color=(.*?)\](.*?)\[\/color\]/gi, (_, color, text) => {
         // Basic validation for color to prevent CSS injection
         const sanitizedColor = color.replace(/[^\w#\s\-,()]/g, ''); 
@@ -42,7 +44,7 @@ export const parseBBCodeToHtml = (content: string) => {
   return parsed;
 };
 
-// Editor helpers remain mostly the same
+// Editor helpers
 export const bbcodeToEditorHtml = (content: string) => {
   if (!content) return '';
   let parsed = content
@@ -52,6 +54,9 @@ export const bbcodeToEditorHtml = (content: string) => {
     .replace(/\[u\](.*?)\[\/u\]/gi, '<u>$1</u>')
     .replace(/\[s\](.*?)\[\/s\]/gi, '<s>$1</s>')
     .replace(/\[center\]([\s\S]*?)\[\/center\]/gi, '<div style="text-align: center;">$1</div>')
+    .replace(/\[left\]([\s\S]*?)\[\/left\]/gi, '<div style="text-align: left;">$1</div>')
+    .replace(/\[right\]([\s\S]*?)\[\/right\]/gi, '<div style="text-align: right;">$1</div>')
+    .replace(/\[justify\]([\s\S]*?)\[\/justify\]/gi, '<div style="text-align: justify;">$1</div>')
     .replace(/\[color=(.*?)\](.*?)\[\/color\]/gi, '<span style="color:$1">$2</span>')
     .replace(/\[img\](.*?)\[\/img\]/gi, '<img src="$1" style="max-width: 100%; border-radius: 4px;" />')
     .replace(/\[url=(.*?)\](.*?)\[\/url\]/gi, '<a href="$1">$2</a>')
@@ -77,7 +82,14 @@ export const htmlToBBCode = (html: string) => {
       case 'u': return `[u]${content}[/u]`;
       case 's': case 'strike': case 'del': return `[s]${content}[/s]`;
       case 'br': return '\n';
-      case 'div': case 'p': if (style.includes('text-align: center')) return `\n[center]${content}[/center]\n`; return `\n${content}\n`;
+      case 'div': case 'p': 
+        const align = el.style.textAlign || el.getAttribute('align');
+        if (align === 'center') return `\n[center]${content}[/center]\n`;
+        if (align === 'right') return `\n[right]${content}[/right]\n`;
+        if (align === 'justify') return `\n[justify]${content}[/justify]\n`;
+        if (align === 'left') return `\n[left]${content}[/left]\n`;
+        if (style.includes('text-align: center')) return `\n[center]${content}[/center]\n`; // Fallback check string
+        return `\n${content}\n`;
       case 'img': return `[img]${el.getAttribute('src') || ''}[/img]`;
       case 'a': return `[url=${el.getAttribute('href')}]${content}[/url]`;
       case 'blockquote': return `[quote]${content}[/quote]`;

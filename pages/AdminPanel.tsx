@@ -196,7 +196,7 @@ const AdminPanel: React.FC = () => {
                          </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-700">
-                         {Object.values(users).sort((a,b) => new Date(b.joinedAt).getTime() - new Date(a.joinedAt).getTime()).slice(0, 5).map(u => (
+                         {(Object.values(users) as User[]).sort((a,b) => new Date(b.joinedAt).getTime() - new Date(a.joinedAt).getTime()).slice(0, 5).map(u => (
                             <tr key={u.id}>
                                <td className="px-4 py-2 text-white">{u.username}</td>
                                <td className="px-4 py-2">{hasPermission(currentUser, 'canViewUserEmails') ? u.email : '***'}</td>

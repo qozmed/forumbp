@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Bold, Italic, Underline, Code, Link, Image, Quote, Type, Palette, Undo, Redo } from 'lucide-react';
+import { Bold, Italic, Underline, Code, Link, Image, Quote, Type, Palette, Undo, Redo, AlignLeft, AlignCenter, AlignRight, AlignJustify } from 'lucide-react';
 import { bbcodeToEditorHtml, htmlToBBCode } from '../../utils/bbCodeParser';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -68,6 +68,11 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
     { icon: <Underline className="w-4 h-4" />, action: () => execCmd('underline'), title: t('editor.underline') },
     { icon: <Type className="w-4 h-4" />, action: () => execCmd('strikeThrough'), title: t('editor.strike') },
     { type: 'divider' },
+    { icon: <AlignLeft className="w-4 h-4" />, action: () => execCmd('justifyLeft'), title: t('editor.alignLeft') },
+    { icon: <AlignCenter className="w-4 h-4" />, action: () => execCmd('justifyCenter'), title: t('editor.alignCenter') },
+    { icon: <AlignRight className="w-4 h-4" />, action: () => execCmd('justifyRight'), title: t('editor.alignRight') },
+    { icon: <AlignJustify className="w-4 h-4" />, action: () => execCmd('justifyFull'), title: t('editor.alignJustify') },
+    { type: 'divider' },
     { icon: <Palette className="w-4 h-4 text-white" />, action: triggerColorPicker, title: t('editor.color') },
     { type: 'divider' },
     { icon: <Link className="w-4 h-4" />, action: handleLink, title: t('editor.link') },
@@ -116,7 +121,7 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
         ref={editorRef}
         contentEditable
         onInput={handleInput}
-        className={`w-full bg-[#0a0a0a] p-4 text-gray-200 focus:outline-none min-h-[150px] max-h-[500px] overflow-y-auto prose prose-invert prose-p:my-1 prose-pre:bg-black prose-pre:border prose-pre:border-[#333] ${className}`}
+        className={`w-full bg-[#0a0a0a] p-4 text-gray-200 focus:outline-none min-h-[300px] max-h-[600px] overflow-y-auto prose prose-invert prose-p:my-1 prose-pre:bg-black prose-pre:border prose-pre:border-[#333] ${className}`}
         style={{ whiteSpace: 'pre-wrap' }}
         data-placeholder={placeholder}
       />
