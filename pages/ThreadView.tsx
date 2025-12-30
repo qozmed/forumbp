@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Home, ChevronRight, Lock, Share2, Pin, Check, Pencil } from 'lucide-react';
+import { Home, ChevronRight, Lock, Share2, Pin, Check, Pencil, Trash2 } from 'lucide-react';
 import PostItem from '../components/Forum/PostItem';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import Sidebar from '../components/Layout/Sidebar';
@@ -10,8 +10,9 @@ import BBCodeEditor from '../components/UI/BBCodeEditor';
 
 const ThreadView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes } = useForum();
+  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes } = useForum();
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const [replyContent, setReplyContent] = useState('');
   const [isCopied, setIsCopied] = useState(false);
 
@@ -52,6 +53,25 @@ const ThreadView: React.FC = () => {
   );
   
   const canPin = currentUser && hasPermission(currentUser, 'canPinThreads');
+
+  // Delete Check
+  const canDelete = currentUser && (
+    hasPermission(currentUser, 'canDeleteAnyThread') ||
+    (isAuthor && hasPermission(currentUser, 'canDeleteOwnThreads'))
+  );
+
+  const handleDeleteThread = async () => {
+     if(window.confirm(t('admin.confirmDelete'))) {
+        try {
+           await deleteThread(thread.id);
+           if (forum) navigate(`/forum/${forum.id}`);
+           else navigate('/');
+        } catch(e) {
+           console.error(e);
+           alert(t('alert.deleteFail'));
+        }
+     }
+  };
 
   // Edit Header Check
   const canEditHeader = currentUser && (
@@ -104,7 +124,7 @@ const ThreadView: React.FC = () => {
                            onChange={(e) => setEditPrefix(e.target.value)}
                            className="bg-[#222] border border-[#444] text-white rounded px-2 py-2 text-sm outline-none focus:border-white"
                         >
-                           <option value="">No Prefix</option>
+                           <option value="">{t('thread.noPrefix')}</option>
                            {prefixes.map(p => <option key={p.id} value={p.id}>{p.text}</option>)}
                         </select>
                         <input 
@@ -115,8 +135,8 @@ const ThreadView: React.FC = () => {
                         />
                      </div>
                      <div className="flex gap-2 justify-end">
-                        <button onClick={() => setIsEditingHeader(false)} className="px-3 py-1.5 rounded text-sm bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700">Cancel</button>
-                        <button onClick={saveHeaderEdit} className="px-3 py-1.5 rounded text-sm bg-white text-black font-bold hover:bg-gray-200">Save Changes</button>
+                        <button onClick={() => setIsEditingHeader(false)} className="px-3 py-1.5 rounded text-sm bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700">{t('general.cancel')}</button>
+                        <button onClick={saveHeaderEdit} className="px-3 py-1.5 rounded text-sm bg-white text-black font-bold hover:bg-gray-200">{t('general.save')}</button>
                      </div>
                   </div>
                ) : (
@@ -154,14 +174,14 @@ const ThreadView: React.FC = () => {
                        className="flex items-center gap-1 hover:text-white transition-colors text-gray-400"
                      >
                         {isCopied ? <Check className="w-3 h-3 text-green-500" /> : <Share2 className="w-3 h-3" />}
-                        {isCopied ? 'Copied' : t('thread.share')}
+                        {isCopied ? t('alert.copyCode') : t('thread.share')}
                      </button>
                   </div>
                </div>
                
                {/* Moderation Tools */}
-               {(canLock || canPin) && (
-                 <div className="mt-2 flex gap-2">
+               {(canLock || canPin || canDelete) && (
+                 <div className="mt-2 flex flex-wrap gap-2">
                     {canLock && (
                       <button 
                         onClick={() => toggleThreadLock(thread.id)}
@@ -177,6 +197,14 @@ const ThreadView: React.FC = () => {
                       >
                          <Pin className="w-3 h-3" /> {thread.isPinned ? 'Unpin' : 'Pin'}
                       </button>
+                    )}
+                    {canDelete && (
+                       <button 
+                          onClick={handleDeleteThread}
+                          className="text-xs flex items-center gap-1 px-3 py-1.5 bg-red-900/20 hover:bg-red-900/40 text-red-400 rounded border border-red-900/40 transition-colors"
+                       >
+                          <Trash2 className="w-3 h-3" /> {t('general.delete')}
+                       </button>
                     )}
                  </div>
                )}

@@ -1,27 +1,27 @@
 import { Category, Forum, Thread, Post, User, Prefix, Role } from './types';
 
 export const ROLE_EFFECTS = [
-  { id: '', name: 'None (Static)' },
-  { id: 'gradient', name: 'Iridescent Gradient' },
-  { id: 'fire', name: 'Fire / Burn' },
-  { id: 'snow', name: 'Snowfall' },
-  { id: 'lightning', name: 'Lightning Flash' },
-  { id: 'sparkle', name: 'Sparkle / Stars' },
-  { id: 'glitch', name: 'Tech Glitch' },
+  { id: '', name: 'Нет (Статичный)' },
+  { id: 'gradient', name: 'Радужный градиент' },
+  { id: 'fire', name: 'Огонь / Горение' },
+  { id: 'snow', name: 'Снегопад' },
+  { id: 'lightning', name: 'Молния / Вспышки' },
+  { id: 'sparkle', name: 'Искры / Звезды' },
+  { id: 'glitch', name: 'Техно Глитч' },
 ];
 
 export const SEED_PREFIXES: Prefix[] = [
-  { id: 'pref_info', text: 'Information', color: 'blue' },
-  { id: 'pref_imp', text: 'Important', color: 'orange' },
-  { id: 'pref_app', text: 'Approved', color: 'green' },
-  { id: 'pref_den', text: 'Denied', color: 'red' },
-  { id: 'pref_rev', text: 'On Review', color: 'yellow' },
+  { id: 'pref_info', text: 'Информация', color: 'blue' },
+  { id: 'pref_imp', text: 'Важно', color: 'orange' },
+  { id: 'pref_app', text: 'Одобрено', color: 'green' },
+  { id: 'pref_den', text: 'Отказано', color: 'red' },
+  { id: 'pref_rev', text: 'На рассмотрении', color: 'yellow' },
 ];
 
 export const SEED_ROLES: Role[] = [
   {
     id: 'role_admin',
-    name: 'Administrator',
+    name: 'Администратор',
     color: '#ef4444', // Red-500
     effect: 'lightning', // Added default effect
     isSystem: true,
@@ -62,7 +62,7 @@ export const SEED_ROLES: Role[] = [
   },
   {
     id: 'role_leader',
-    name: 'Leader',
+    name: 'Лидер',
     color: '#a855f7', // Purple-500
     effect: 'sparkle',
     isSystem: false,
@@ -103,7 +103,7 @@ export const SEED_ROLES: Role[] = [
   },
   {
     id: 'role_user',
-    name: 'User',
+    name: 'Пользователь',
     color: '#9ca3af', // Gray-400
     isSystem: true,
     isDefault: true, // Default role for new users
@@ -143,7 +143,7 @@ export const SEED_ROLES: Role[] = [
   },
   {
     id: 'role_guest',
-    name: 'Guest',
+    name: 'Гость',
     color: '#6b7280', // Gray-500
     isSystem: true,
     isDefault: false,

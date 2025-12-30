@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Bold, Italic, Underline, Code, Link, Image, Quote, Type, Palette, Undo, Redo } from 'lucide-react';
 import { bbcodeToEditorHtml, htmlToBBCode } from '../../utils/bbCodeParser';
+import { useLanguage } from '../../context/LanguageContext';
 
 interface Props {
   value: string; // The BBCode value from parent
@@ -13,6 +14,7 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
   const editorRef = useRef<HTMLDivElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
   const isInitialMount = useRef(true);
+  const { t } = useLanguage();
 
   useEffect(() => {
     if (isInitialMount.current) {
@@ -43,12 +45,12 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
   };
 
   const handleLink = () => {
-    const url = prompt('Enter URL:');
+    const url = prompt(t('editor.enterUrl'));
     if (url) execCmd('createLink', url);
   };
 
   const handleImage = () => {
-    const url = prompt('Enter Image URL:');
+    const url = prompt(t('editor.enterImgUrl'));
     if (url) execCmd('insertImage', url);
   };
 
@@ -61,20 +63,20 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
   };
 
   const tools = [
-    { icon: <Bold className="w-4 h-4" />, action: () => execCmd('bold'), title: 'Bold' },
-    { icon: <Italic className="w-4 h-4" />, action: () => execCmd('italic'), title: 'Italic' },
-    { icon: <Underline className="w-4 h-4" />, action: () => execCmd('underline'), title: 'Underline' },
-    { icon: <Type className="w-4 h-4" />, action: () => execCmd('strikeThrough'), title: 'Strikethrough' },
+    { icon: <Bold className="w-4 h-4" />, action: () => execCmd('bold'), title: t('editor.bold') },
+    { icon: <Italic className="w-4 h-4" />, action: () => execCmd('italic'), title: t('editor.italic') },
+    { icon: <Underline className="w-4 h-4" />, action: () => execCmd('underline'), title: t('editor.underline') },
+    { icon: <Type className="w-4 h-4" />, action: () => execCmd('strikeThrough'), title: t('editor.strike') },
     { type: 'divider' },
-    { icon: <Palette className="w-4 h-4 text-white" />, action: triggerColorPicker, title: 'Color Picker' },
+    { icon: <Palette className="w-4 h-4 text-white" />, action: triggerColorPicker, title: t('editor.color') },
     { type: 'divider' },
-    { icon: <Link className="w-4 h-4" />, action: handleLink, title: 'Link' },
-    { icon: <Image className="w-4 h-4" />, action: handleImage, title: 'Image' },
-    { icon: <Quote className="w-4 h-4" />, action: () => execCmd('formatBlock', 'blockquote'), title: 'Quote' },
-    { icon: <Code className="w-4 h-4" />, action: () => execCmd('formatBlock', 'pre'), title: 'Code' },
+    { icon: <Link className="w-4 h-4" />, action: handleLink, title: t('editor.link') },
+    { icon: <Image className="w-4 h-4" />, action: handleImage, title: t('editor.image') },
+    { icon: <Quote className="w-4 h-4" />, action: () => execCmd('formatBlock', 'blockquote'), title: t('editor.quote') },
+    { icon: <Code className="w-4 h-4" />, action: () => execCmd('formatBlock', 'pre'), title: t('editor.code') },
     { type: 'divider' },
-    { icon: <Undo className="w-4 h-4" />, action: () => execCmd('undo'), title: 'Undo' },
-    { icon: <Redo className="w-4 h-4" />, action: () => execCmd('redo'), title: 'Redo' },
+    { icon: <Undo className="w-4 h-4" />, action: () => execCmd('undo'), title: t('editor.undo') },
+    { icon: <Redo className="w-4 h-4" />, action: () => execCmd('redo'), title: t('editor.redo') },
   ];
 
   return (
@@ -119,8 +121,8 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
         data-placeholder={placeholder}
       />
       <div className="px-3 py-1 bg-[#111] border-t border-[#333] text-[10px] text-gray-600 flex justify-between">
-         <span>WYSIWYG Editor Mode</span>
-         <span>Supported: Text, Images, Links</span>
+         <span>{t('editor.mode')}</span>
+         <span>{t('editor.supported')}</span>
       </div>
     </div>
   );

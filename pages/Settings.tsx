@@ -30,7 +30,7 @@ const SettingsPage: React.FC = () => {
     
     // Validate Username change if applicable
     if (username !== currentUser.username && !hasPermission(currentUser, 'canChangeUsername')) {
-      setError("You do not have permission to change your username.");
+      setError(t('settings.noPermissionUsername'));
       return;
     }
 
@@ -83,7 +83,7 @@ const SettingsPage: React.FC = () => {
                    onChange={(e) => setUsername(e.target.value)}
                    disabled={!hasPermission(currentUser, 'canChangeUsername')}
                    className="w-full bg-gray-900 border border-gray-700 rounded p-2.5 text-white focus:border-cyan-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                   title={!hasPermission(currentUser, 'canChangeUsername') ? 'Permission required' : ''}
+                   title={!hasPermission(currentUser, 'canChangeUsername') ? t('settings.noPermissionUsername') : ''}
                  />
                </div>
 
@@ -179,7 +179,7 @@ const SettingsPage: React.FC = () => {
                  </div>
              ) : (
                  <div className="p-4 bg-gray-900/50 border border-gray-700 rounded text-gray-500 text-sm">
-                    Signatures are disabled for your role.
+                    {t('settings.permissions')} required.
                  </div>
              )}
 

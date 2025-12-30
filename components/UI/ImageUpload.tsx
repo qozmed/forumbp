@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Upload, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { compressImage } from '../../utils/image';
+import { useLanguage } from '../../context/LanguageContext';
 
 interface Props {
   label: string;
@@ -13,18 +14,19 @@ const ImageUpload: React.FC<Props> = ({ label, currentImage, onImageChange, maxW
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const { t } = useLanguage();
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      setError('Only images are allowed');
+      setError(t('upload.error.type'));
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      setError('File size too large (max 5MB)');
+      setError(t('upload.error.size'));
       return;
     }
 
@@ -34,7 +36,7 @@ const ImageUpload: React.FC<Props> = ({ label, currentImage, onImageChange, maxW
       const base64 = await compressImage(file, maxWidth);
       onImageChange(base64);
     } catch (err) {
-      setError('Failed to process image');
+      setError(t('upload.error.fail'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -64,7 +66,7 @@ const ImageUpload: React.FC<Props> = ({ label, currentImage, onImageChange, maxW
             className="flex items-center gap-2 px-4 py-2 bg-gray-900 border border-gray-700 hover:bg-gray-800 text-white rounded transition-colors text-sm w-full justify-center md:w-auto"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            {loading ? 'Processing...' : 'Upload Image'}
+            {loading ? t('upload.processing') : t('upload.btn')}
           </button>
           
           <input 
@@ -77,7 +79,7 @@ const ImageUpload: React.FC<Props> = ({ label, currentImage, onImageChange, maxW
           
           {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
           <p className="text-xs text-gray-500 mt-2">
-             Supported: JPG, PNG, GIF. Max 5MB. Auto-resized.
+             {t('upload.help')}
           </p>
         </div>
       </div>

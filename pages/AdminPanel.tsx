@@ -160,7 +160,7 @@ const AdminPanel: React.FC = () => {
                       <div className="p-3 bg-blue-900/30 rounded-full text-blue-400"><Users className="w-8 h-8" /></div>
                       <div>
                          <div className="text-3xl font-bold text-white">{Object.keys(users).length}</div>
-                         <div className="text-gray-400 text-sm">Total Users</div>
+                         <div className="text-gray-400 text-sm">{t('admin.totalUsers')}</div>
                       </div>
                    </div>
                 </div>
@@ -169,7 +169,7 @@ const AdminPanel: React.FC = () => {
                       <div className="p-3 bg-green-900/30 rounded-full text-green-400"><MessageSquarePlus className="w-8 h-8" /></div>
                       <div>
                          <div className="text-3xl font-bold text-white">{threads.length}</div>
-                         <div className="text-gray-400 text-sm">Total Threads</div>
+                         <div className="text-gray-400 text-sm">{t('admin.totalThreads')}</div>
                       </div>
                    </div>
                 </div>
@@ -178,21 +178,21 @@ const AdminPanel: React.FC = () => {
                       <div className="p-3 bg-purple-900/30 rounded-full text-purple-400"><MessageCircle className="w-8 h-8" /></div>
                       <div>
                          <div className="text-3xl font-bold text-white">{posts.length}</div>
-                         <div className="text-gray-400 text-sm">Total Posts</div>
+                         <div className="text-gray-400 text-sm">{t('admin.totalPosts')}</div>
                       </div>
                    </div>
                 </div>
              </div>
              
              <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><Activity className="w-5 h-5" /> Recent Registrations</h3>
+                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><Activity className="w-5 h-5" /> {t('admin.recentReg')}</h3>
                 <div className="overflow-x-auto">
                    <table className="w-full text-left text-sm text-gray-400 min-w-[500px]">
                       <thead className="bg-gray-900 text-gray-200">
                          <tr>
-                            <th className="px-4 py-2">User</th>
-                            <th className="px-4 py-2">Email</th>
-                            <th className="px-4 py-2">Joined</th>
+                            <th className="px-4 py-2">{t('admin.user')}</th>
+                            <th className="px-4 py-2">{t('admin.email')}</th>
+                            <th className="px-4 py-2">{t('user.joined')}</th>
                          </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-700">
@@ -217,13 +217,13 @@ const AdminPanel: React.FC = () => {
              <div className={`p-6 rounded-lg border transition-all ${editingItem?.type === 'category' ? 'bg-cyan-900/10 border-cyan-500' : 'bg-gray-800 border-gray-700'}`}>
                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                  <FolderPlus className="w-5 h-5" /> 
-                 {editingItem?.type === 'category' ? 'Edit Category' : t('admin.createCat')}
+                 {editingItem?.type === 'category' ? t('admin.editCat') : t('admin.createCat')}
                </h3>
                <form onSubmit={handleCreateOrUpdateCat} className="space-y-4">
                  <input type="text" value={catName} onChange={e => setCatName(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder={t('admin.catTitle')} required />
                  <div className="flex gap-2">
                    <button className="bg-cyan-600 px-4 py-2 rounded text-white font-bold flex-1 hover:bg-cyan-500">
-                     {editingItem?.type === 'category' ? 'Save Changes' : t('admin.createCat')}
+                     {editingItem?.type === 'category' ? t('general.save') : t('admin.createCat')}
                    </button>
                    {editingItem?.type === 'category' && (
                      <button type="button" onClick={cancelEdit} className="bg-gray-700 px-4 py-2 rounded text-white hover:bg-gray-600">
@@ -238,7 +238,7 @@ const AdminPanel: React.FC = () => {
              <div className={`p-6 rounded-lg border transition-all ${editingItem?.type === 'forum' ? 'bg-cyan-900/10 border-cyan-500' : 'bg-gray-800 border-gray-700'}`}>
                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                  <MessageSquarePlus className="w-5 h-5" /> 
-                 {editingItem?.type === 'forum' ? 'Edit Forum' : t('admin.createForum')}
+                 {editingItem?.type === 'forum' ? t('admin.editForum') : t('admin.createForum')}
                </h3>
                <form onSubmit={handleCreateOrUpdateForum} className="space-y-4">
                  <div className="flex gap-4">
@@ -254,12 +254,12 @@ const AdminPanel: React.FC = () => {
                  
                  <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer p-2 bg-gray-900 rounded border border-gray-600">
                     <input type="checkbox" checked={isForumClosed} onChange={e => setIsForumClosed(e.target.checked)} className="rounded" />
-                    <span className="flex items-center gap-2"><Lock className="w-3.5 h-3.5 text-red-400" /> Close Forum (Lock)</span>
+                    <span className="flex items-center gap-2"><Lock className="w-3.5 h-3.5 text-red-400" /> {t('admin.closeForum')}</span>
                  </label>
 
                  <div className="flex gap-2">
                    <button className="bg-cyan-600 px-4 py-2 rounded text-white font-bold flex-1 hover:bg-cyan-500">
-                      {editingItem?.type === 'forum' ? 'Save Changes' : t('admin.createForum')}
+                      {editingItem?.type === 'forum' ? t('general.save') : t('admin.createForum')}
                    </button>
                    {editingItem?.type === 'forum' && (
                      <button type="button" onClick={cancelEdit} className="bg-gray-700 px-4 py-2 rounded text-white hover:bg-gray-600">
@@ -302,7 +302,7 @@ const AdminPanel: React.FC = () => {
                        
                        {/* Forums List */}
                        <div className="p-2 space-y-1">
-                          {catForums.length === 0 && <div className="text-xs text-gray-600 italic px-2">No forums</div>}
+                          {catForums.length === 0 && <div className="text-xs text-gray-600 italic px-2">{t('general.noResults')}</div>}
                           {catForums.map((f, fIdx) => {
                              const subForums = forums.filter(sf => sf.parentId === f.id);
                              return (
@@ -397,7 +397,7 @@ const AdminPanel: React.FC = () => {
                           {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                         </select>
                       </td>
-                      <td className="px-6 py-4">{user.isBanned ? <span className="text-red-400 font-bold">BANNED</span> : <span className="text-green-400">Active</span>}</td>
+                      <td className="px-6 py-4">{user.isBanned ? <span className="text-red-400 font-bold">{t('admin.banned')}</span> : <span className="text-green-400">{t('admin.active')}</span>}</td>
                       <td className="px-6 py-4">
                         {hasPermission(currentUser, 'canBanUsers') && user.id !== currentUser.id && (
                           <button onClick={() => banUser(user.id, !user.isBanned)} className={`px-3 py-1 rounded text-xs font-bold ${user.isBanned ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}`}>
@@ -418,12 +418,20 @@ const AdminPanel: React.FC = () => {
             <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
                <h3 className="text-xl font-bold text-white mb-4">{t('admin.createRole')}</h3>
                <form onSubmit={handleCreateRole} className="space-y-4">
-                 <input type="text" value={roleName} onChange={e => setRoleName(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder="Role Name" required />
-                 <input type="color" value={roleColor} onChange={e => setRoleColor(e.target.value)} className="w-full h-10 bg-gray-900 border border-gray-600 rounded p-1 cursor-pointer" />
-                 <select value={roleEffect} onChange={e => setRoleEffect(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white">
-                    {ROLE_EFFECTS.map(effect => <option key={effect.id} value={effect.id}>{effect.name}</option>)}
-                 </select>
+                 <input type="text" value={roleName} onChange={e => setRoleName(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder={t('admin.roleName')} required />
+                 <div>
+                    <label className="text-xs text-gray-500 mb-1 block">{t('admin.baseColor')}</label>
+                    <input type="color" value={roleColor} onChange={e => setRoleColor(e.target.value)} className="w-full h-10 bg-gray-900 border border-gray-600 rounded p-1 cursor-pointer" />
+                 </div>
+                 <div>
+                    <label className="text-xs text-gray-500 mb-1 block">{t('admin.visualEffect')}</label>
+                    <select value={roleEffect} onChange={e => setRoleEffect(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white">
+                        {ROLE_EFFECTS.map(effect => <option key={effect.id} value={effect.id}>{effect.name}</option>)}
+                    </select>
+                 </div>
+                 
                  <div className="bg-gray-900 p-4 rounded border border-gray-700 space-y-2 max-h-60 overflow-y-auto grid grid-cols-1 gap-1">
+                    <div className="text-xs font-bold text-gray-500 uppercase mb-2">{t('admin.permissions')}</div>
                     {Object.keys(permissions).map(key => (
                       <label key={key} className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:bg-white/5 p-1 rounded">
                         <input type="checkbox" checked={permissions[key as keyof Permissions]} onChange={() => togglePermission(key as keyof Permissions)} />
@@ -441,12 +449,12 @@ const AdminPanel: React.FC = () => {
                    <div key={r.id} className="flex items-center justify-between bg-gray-900/50 p-3 rounded border border-gray-700">
                       <div className="flex items-center gap-3">
                         <RoleBadge role={r} />
-                        {r.isDefault && <span className="text-[10px] font-bold bg-green-900 text-green-200 px-1.5 py-0.5 rounded border border-green-700">DEFAULT</span>}
+                        {r.isDefault && <span className="text-[10px] font-bold bg-green-900 text-green-200 px-1.5 py-0.5 rounded border border-green-700">{t('admin.default')}</span>}
                       </div>
                       <div className="flex items-center gap-2">
                         {!r.isDefault && (
                            <button onClick={() => adminSetDefaultRole(r.id)} className="text-xs font-bold text-gray-500 hover:text-white px-2 py-1 hover:bg-gray-700 rounded transition-colors">
-                              Make Default
+                              {t('admin.makeDefault')}
                            </button>
                         )}
                         {!r.isSystem && <button onClick={() => adminDeleteRole(r.id)} className="text-red-400 p-1 hover:bg-red-900/20 rounded"><Trash2 className="w-4 h-4" /></button>}
@@ -465,7 +473,7 @@ const AdminPanel: React.FC = () => {
                <form onSubmit={handleCreatePrefix} className="space-y-4">
                  <input type="text" value={prefixText} onChange={e => setPrefixText(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder={t('admin.prefixText')} required />
                  <div>
-                    <label className="text-xs text-gray-500 mb-1 block">Color</label>
+                    <label className="text-xs text-gray-500 mb-1 block">{t('admin.prefixColor')}</label>
                     <input type="color" value={prefixColor} onChange={e => setPrefixColor(e.target.value)} className="w-full h-10 bg-gray-900 border border-gray-600 rounded p-1 cursor-pointer" />
                  </div>
                  <button className="bg-cyan-600 px-4 py-2 rounded text-white font-bold w-full hover:bg-cyan-500">{t('admin.createPrefix')}</button>

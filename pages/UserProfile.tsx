@@ -19,8 +19,8 @@ const UserProfile: React.FC = () => {
         <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
            <div className="bg-[#1a1a1a] p-8 rounded-lg border border-[#333] text-center max-w-md mx-4">
               <Lock className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-white mb-2">{t('auth.login')} Required</h2>
-              <p className="text-gray-400 mb-6">You must be logged in to view user profiles.</p>
+              <h2 className="text-xl font-bold text-white mb-2">{t('user.loginRequired')}</h2>
+              <p className="text-gray-400 mb-6">{t('user.loginRequiredMsg')}</p>
            </div>
         </div>
      );

@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Post } from '../../types';
 import { useForum } from '../../context/ForumContext';
@@ -31,7 +32,7 @@ const PostItem: React.FC<Props> = ({ post }) => {
     const contentToCopy = codeMatch ? codeMatch[1].trim() : post.content;
     
     navigator.clipboard.writeText(contentToCopy);
-    alert(t('general.copyCode') + (codeMatch ? ' (Template extracted)' : ''));
+    alert(t('alert.copyCode') + (codeMatch ? t('alert.template') : ''));
   };
 
   const handleSaveEdit = async () => {
@@ -41,15 +42,15 @@ const PostItem: React.FC<Props> = ({ post }) => {
       setIsEditing(false);
     } catch (e) {
       console.error(e);
-      alert('Failed to update post');
+      alert(t('alert.updateFail'));
     }
   };
 
   const handleDelete = async () => {
     const isThreadStarter = post.number === 1;
     const confirmMsg = isThreadStarter 
-      ? 'Deleting this post will delete the entire thread. Are you sure?' 
-      : 'Are you sure you want to delete this post?';
+      ? t('alert.deleteThreadConfirm')
+      : t('alert.deletePostConfirm');
 
     if (window.confirm(confirmMsg)) {
       try {
@@ -63,7 +64,7 @@ const PostItem: React.FC<Props> = ({ post }) => {
            }
         }
       } catch (e: any) {
-        alert(e.message || 'Failed to delete');
+        alert(e.message || t('alert.deleteFail'));
       }
     }
   };
@@ -168,10 +169,10 @@ const PostItem: React.FC<Props> = ({ post }) => {
                   />
                   <div className="flex justify-end gap-3">
                     <button onClick={handleCancelEdit} className="flex items-center gap-1.5 px-4 py-2 rounded text-xs font-bold text-gray-400 hover:text-white border border-[#333] hover:bg-[#222] transition-colors">
-                      <X className="w-3.5 h-3.5" /> Cancel
+                      <X className="w-3.5 h-3.5" /> {t('general.cancel')}
                     </button>
                     <button onClick={handleSaveEdit} className="flex items-center gap-1.5 px-4 py-2 rounded text-xs font-bold bg-white text-black hover:bg-gray-200 transition-colors">
-                      <Check className="w-3.5 h-3.5" /> Save Changes
+                      <Check className="w-3.5 h-3.5" /> {t('general.save')}
                     </button>
                   </div>
                 </div>
@@ -218,7 +219,7 @@ const PostItem: React.FC<Props> = ({ post }) => {
                       title={post.number === 1 ? 'Delete Thread' : 'Delete Post'}
                     >
                       <Trash2 className="w-3.5 h-3.5" /> 
-                      <span className="hidden md:inline">{post.number === 1 ? 'Thread' : 'Delete'}</span>
+                      <span className="hidden md:inline">{post.number === 1 ? t('thread.threads') : t('general.delete')}</span>
                     </button>
                   )}
                   {canEdit && !isEditing && (
@@ -226,7 +227,7 @@ const PostItem: React.FC<Props> = ({ post }) => {
                       onClick={() => { setIsEditing(true); setEditContent(post.content); }}
                       className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#222] px-2 md:px-3 py-1.5 rounded transition-all"
                     >
-                      <Pencil className="w-3.5 h-3.5" /> <span className="hidden md:inline">Edit</span>
+                      <Pencil className="w-3.5 h-3.5" /> <span className="hidden md:inline">{t('general.edit')}</span>
                     </button>
                   )}
                   <button 

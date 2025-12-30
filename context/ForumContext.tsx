@@ -43,6 +43,7 @@ interface ForumContextType {
   logout: () => void;
   createThread: (forumId: string, title: string, content: string, prefixId?: string) => Promise<void>;
   updateThread: (threadId: string, data: Partial<Thread>) => Promise<void>; // NEW
+  deleteThread: (threadId: string) => Promise<void>; // NEW: Delete Thread
   replyToThread: (threadId: string, content: string) => Promise<void>;
   editPost: (postId: string, newContent: string) => Promise<void>;
   deletePost: (postId: string) => Promise<void>;
@@ -234,7 +235,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       await fn();
       await loadData(false); // Immediate update
     } catch (e: any) {
-      alert(e.message || "Action failed");
+      alert(e.message || "Ошибка выполнения");
     } finally {
       // RESUME POLLING
       startPolling();
@@ -262,13 +263,13 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
        const user = await db.login(u); // Local DB just checks username existence in mock
        // Simple hash check for offline simulation
        // @ts-ignore
-       if (user.password !== simpleHash(p || '')) throw new Error("Invalid password");
-       if (user.isBanned) throw new Error("Banned");
+       if (user.password !== simpleHash(p || '')) throw new Error("Неверный пароль");
+       if (user.isBanned) throw new Error("Пользователь забанен");
        setCurrentUser(user);
        db.setSession(user.id);
     } else {
        const user = await mongo.login(u, p);
-       if (user.isBanned) throw new Error("Banned");
+       if (user.isBanned) throw new Error("Пользователь забанен");
        setCurrentUser(user);
        mongo.setSession(user.id);
     }
@@ -339,7 +340,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     // FORUM CLOSED CHECK
     if (forum.isClosed && !hasPermission(currentUser, 'canManageForums')) {
-       throw new Error("This forum is closed. You cannot create threads here.");
+       throw new Error("Этот форум закрыт. Вы не можете создавать здесь темы.");
     }
 
     const tid = `t${Date.now()}`;
@@ -388,6 +389,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
      }
   });
 
+  const deleteThread = (threadId: string) => mutate(async () => {
+     await mutationApi.deleteThread(threadId);
+  });
+
   const replyToThread = (tid: string, content: string) => mutate(async () => {
     if(!currentUser) return;
     const thread = getThread(tid);
@@ -396,11 +401,11 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const forum = forums.find(f => f.id === thread.forumId);
     // FORUM CLOSED CHECK
     if (forum && forum.isClosed && !hasPermission(currentUser, 'canManageForums')) {
-       throw new Error("This forum is closed. You cannot reply to threads here.");
+       throw new Error("Этот форум закрыт. Вы не можете отвечать в темах.");
     }
 
     if (thread.isLocked && !hasPermission(currentUser, 'canLockThreads')) {
-       throw new Error("This thread is locked.");
+       throw new Error("Эта тема закрыта.");
     }
     
     const now = new Date().toISOString();
@@ -428,7 +433,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
    // NOTIFICATION: Notify Thread Author
    await sendNotification(
      thread.authorId, 
-     `${currentUser.username} replied to your thread "${thread.title}"`,
+     `${currentUser.username} ответил в вашей теме "${thread.title}"`,
      `/thread/${tid}#post-${pid}`
    );
 
@@ -465,7 +470,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             // Notify Author
             await sendNotification(
                 post.authorId,
-                `${currentUser.username} liked your post in thread`,
+                `${currentUser.username} оценил ваше сообщение`,
                 `/thread/${post.threadId}#post-${pid}`
             );
         }
@@ -584,9 +589,9 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return (
       <div className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center p-6 text-center">
          <ServerCrash className="w-20 h-20 text-red-600 mb-6" />
-         <h1 className="text-3xl font-bold text-white mb-2">System Error</h1>
+         <h1 className="text-3xl font-bold text-white mb-2">Системная ошибка</h1>
          <p className="text-gray-400 max-w-md mb-8">{fatalError}</p>
-         <button onClick={() => { setFatalError(null); loadData(true); }} className="px-6 py-3 bg-white text-black font-bold rounded hover:bg-gray-200">Retry</button>
+         <button onClick={() => { setFatalError(null); loadData(true); }} className="px-6 py-3 bg-white text-black font-bold rounded hover:bg-gray-200">Повторить</button>
       </div>
     );
   }
@@ -600,7 +605,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       categories, forums, threads, posts, users, currentUser, prefixes, roles, userRole, loading, isOfflineMode: isOffline,
       getForum, getThread, getPostsByThread, getPostsByUser, getForumsByCategory, getSubForums, getUser, getUserRole, getUserRoles, hasPermission,
       login, register, logout,
-      createThread, updateThread, replyToThread, editPost, deletePost, toggleLike, toggleThreadLock, toggleThreadPin,
+      createThread, updateThread, deleteThread, replyToThread, editPost, deletePost, toggleLike, toggleThreadLock, toggleThreadPin,
       updateUser, banUser, markNotificationsRead,
       adminCreateCategory, adminUpdateCategory, adminMoveCategory, adminDeleteCategory, 
       adminCreateForum, adminUpdateForum, adminMoveForum, adminDeleteForum, adminUpdateUserRole,
@@ -610,8 +615,8 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
          <div className="fixed bottom-4 right-4 z-50 bg-yellow-900/90 backdrop-blur text-white px-4 py-3 rounded-lg shadow-2xl border border-yellow-500 flex items-center gap-3 animate-pulse">
             <WifiOff className="w-5 h-5" />
             <div className="flex flex-col">
-               <span className="text-sm font-bold">Offline Mode</span>
-               <span className="text-[10px] text-yellow-200">Server unreachable.</span>
+               <span className="text-sm font-bold">Оффлайн режим</span>
+               <span className="text-[10px] text-yellow-200">Сервер недоступен.</span>
             </div>
             <button onClick={() => { setIsOffline(false); loadData(true); }} className="ml-2 p-1 hover:bg-white/10 rounded"><RotateCcw className="w-4 h-4" /></button>
          </div>
