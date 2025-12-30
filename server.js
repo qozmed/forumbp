@@ -32,8 +32,15 @@ const hashPassword = (password) => {
 };
 
 const verifyPassword = (password, savedHash, savedSalt) => {
-  const hash = crypto.pbkdf2Sync(password, savedSalt, 1000, 64, 'sha512').toString('hex');
-  return hash === savedHash;
+  // Prevent crash if user data is incomplete (missing salt/hash)
+  if (!password || !savedHash || !savedSalt) return false;
+  try {
+    const hash = crypto.pbkdf2Sync(password, savedSalt, 1000, 64, 'sha512').toString('hex');
+    return hash === savedHash;
+  } catch (e) {
+    console.error("Password verification error:", e.message);
+    return false;
+  }
 };
 
 // 2. Rate Limiter (Basic In-Memory DDoS Protection)
@@ -270,7 +277,7 @@ app.post('/api/auth/login', handle(async (req, res) => {
   const { username, password } = req.body;
   const user = await User.findOne({ username }).select('+hash +salt');
   
-  if (!user || !verifyPassword(password, user.hash, user.salt)) {
+  if (!user || !user.salt || !verifyPassword(password, user.hash, user.salt)) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
   
