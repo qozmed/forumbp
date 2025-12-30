@@ -20,21 +20,21 @@ export const parseBBCodeToHtml = (content: string) => {
   let parsed = escapeHtml(content);
 
   parsed = parsed
-    .replace(/\[b\](.*?)\[\/b\]/gi, '<strong class="text-white font-bold">$1</strong>')
-    .replace(/\[i\](.*?)\[\/i\]/gi, '<em class="italic">$1</em>')
-    .replace(/\[u\](.*?)\[\/u\]/gi, '<u class="underline">$1</u>')
-    .replace(/\[s\](.*?)\[\/s\]/gi, '<s class="line-through opacity-70">$1</s>')
+    .replace(/\[b\]([\s\S]*?)\[\/b\]/gi, '<strong class="text-white font-bold">$1</strong>')
+    .replace(/\[i\]([\s\S]*?)\[\/i\]/gi, '<em class="italic">$1</em>')
+    .replace(/\[u\]([\s\S]*?)\[\/u\]/gi, '<u class="underline">$1</u>')
+    .replace(/\[s\]([\s\S]*?)\[\/s\]/gi, '<s class="line-through opacity-70">$1</s>')
     .replace(/\[center\]([\s\S]*?)\[\/center\]/gi, '<div class="text-center">$1</div>')
     .replace(/\[left\]([\s\S]*?)\[\/left\]/gi, '<div class="text-left">$1</div>')
     .replace(/\[right\]([\s\S]*?)\[\/right\]/gi, '<div class="text-right">$1</div>')
     .replace(/\[justify\]([\s\S]*?)\[\/justify\]/gi, '<div class="text-justify">$1</div>')
-    .replace(/\[color=(.*?)\](.*?)\[\/color\]/gi, (_, color, text) => {
+    .replace(/\[color=(.*?)\]([\s\S]*?)\[\/color\]/gi, (_, color, text) => {
         // Basic validation for color to prevent CSS injection
         const sanitizedColor = color.replace(/[^\w#\s\-,()]/g, ''); 
         return `<span style="color:${sanitizedColor}">${text}</span>`;
     })
     .replace(/\[img\](.*?)\[\/img\]/gi, '<img src="$1" class="max-w-full rounded border border-[#333] my-3 shadow inline-block" alt="Image" />')
-    .replace(/\[url=(.*?)\](.*?)\[\/url\]/gi, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-cyan-400 hover:text-cyan-300 underline decoration-cyan-900 hover:decoration-cyan-400 transition-all">$2</a>')
+    .replace(/\[url=(.*?)\]([\s\S]*?)\[\/url\]/gi, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-cyan-400 hover:text-cyan-300 underline decoration-cyan-900 hover:decoration-cyan-400 transition-all">$2</a>')
     .replace(/\[quote=(.*?)\]([\s\S]*?)\[\/quote\]/gi, '<div class="my-4 border-l-2 border-white bg-[#1a1a1a] p-4 rounded-r"><div class="text-xs text-white font-bold mb-2 uppercase tracking-wider opacity-70">$1 wrote:</div><div class="text-gray-400 italic pl-1">$2</div></div>')
     .replace(/\[quote\]([\s\S]*?)\[\/quote\]/gi, '<blockquote class="border-l-2 border-gray-600 pl-4 py-2 my-4 text-gray-500 italic bg-[#111] p-2 rounded-r">$1</blockquote>')
     .replace(/\[code\]([\s\S]*?)\[\/code\]/gi, '<pre class="bg-[#050505] p-4 rounded border border-[#333] overflow-x-auto my-3 text-sm font-mono text-gray-300"><code>$1</code></pre>')
@@ -49,17 +49,17 @@ export const bbcodeToEditorHtml = (content: string) => {
   if (!content) return '';
   let parsed = content
     .replace(/\n/g, '<br>')
-    .replace(/\[b\](.*?)\[\/b\]/gi, '<b>$1</b>')
-    .replace(/\[i\](.*?)\[\/i\]/gi, '<i>$1</i>')
-    .replace(/\[u\](.*?)\[\/u\]/gi, '<u>$1</u>')
-    .replace(/\[s\](.*?)\[\/s\]/gi, '<s>$1</s>')
+    .replace(/\[b\]([\s\S]*?)\[\/b\]/gi, '<b>$1</b>')
+    .replace(/\[i\]([\s\S]*?)\[\/i\]/gi, '<i>$1</i>')
+    .replace(/\[u\]([\s\S]*?)\[\/u\]/gi, '<u>$1</u>')
+    .replace(/\[s\]([\s\S]*?)\[\/s\]/gi, '<s>$1</s>')
     .replace(/\[center\]([\s\S]*?)\[\/center\]/gi, '<div style="text-align: center;">$1</div>')
     .replace(/\[left\]([\s\S]*?)\[\/left\]/gi, '<div style="text-align: left;">$1</div>')
     .replace(/\[right\]([\s\S]*?)\[\/right\]/gi, '<div style="text-align: right;">$1</div>')
     .replace(/\[justify\]([\s\S]*?)\[\/justify\]/gi, '<div style="text-align: justify;">$1</div>')
-    .replace(/\[color=(.*?)\](.*?)\[\/color\]/gi, '<span style="color:$1">$2</span>')
+    .replace(/\[color=(.*?)\]([\s\S]*?)\[\/color\]/gi, '<span style="color:$1">$2</span>')
     .replace(/\[img\](.*?)\[\/img\]/gi, '<img src="$1" style="max-width: 100%; border-radius: 4px;" />')
-    .replace(/\[url=(.*?)\](.*?)\[\/url\]/gi, '<a href="$1">$2</a>')
+    .replace(/\[url=(.*?)\]([\s\S]*?)\[\/url\]/gi, '<a href="$1">$2</a>')
     .replace(/\[quote\]([\s\S]*?)\[\/quote\]/gi, '<blockquote>$1</blockquote>')
     .replace(/\[code\]([\s\S]*?)\[\/code\]/gi, '<pre>$1</pre>');
   return parsed;
