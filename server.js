@@ -3,12 +3,23 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import crypto from 'crypto'; // Native Node crypto
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
+// Fix __dirname for ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
-const PORT = 5001; 
-const HOST = '127.0.0.1'; 
+
+// RENDER CONFIGURATION
+// Render automatically provides the PORT variable.
+const PORT = process.env.PORT || 5001; 
+// Must listen on 0.0.0.0 for Render/Docker containers, not just 127.0.0.1
+const HOST = '0.0.0.0'; 
+
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/blackproject';
 
 // --- SECURITY UTILS ---
@@ -26,7 +37,6 @@ const verifyPassword = (password, savedHash, savedSalt) => {
 };
 
 // 2. Rate Limiter (Basic In-Memory DDoS Protection)
-// CHANGED: Increased limit to prevent issues with Admin actions + Polling
 const rateLimitMap = new Map();
 const rateLimiter = (req, res, next) => {
   const ip = req.ip;
@@ -44,7 +54,6 @@ const rateLimiter = (req, res, next) => {
     } else {
       data.count++;
       if (data.count > maxReq) {
-        // Just warn in console for now, maybe don't hard block for dev ease
         console.warn(`[RateLimit] IP ${ip} exceeded limit.`);
         return res.status(429).json({ error: 'Too many requests, please try again later.' });
       }
@@ -95,7 +104,7 @@ app.use((req, res, next) => {
 
 // --- LOGGING ---
 app.use((req, res, next) => {
-  if (req.url.includes('/health')) return next();
+  if (req.url.includes('/health') || req.url.includes('/assets')) return next();
   console.log(`📡 [${new Date().toISOString().split('T')[1].split('.')[0]}] ${req.method} ${req.url}`);
   next();
 });
@@ -139,8 +148,8 @@ const User = mongoose.model('User', new mongoose.Schema({
   id: { type: String, unique: true, required: true },
   username: { type: String, required: true },
   email: { type: String, required: true },
-  hash: { type: String, select: false }, // Renamed from password
-  salt: { type: String, select: false }, // New field
+  hash: { type: String, select: false },
+  salt: { type: String, select: false },
   avatarUrl: { type: String, default: '' },
   roleId: { type: String, default: 'role_user' },
   secondaryRoleId: { type: String, default: '' },
@@ -159,7 +168,7 @@ const Category = mongoose.model('Category', new mongoose.Schema({
   id: { type: String, unique: true },
   title: String,
   backgroundUrl: String,
-  order: { type: Number, default: 0 } // ADDED ORDER
+  order: { type: Number, default: 0 }
 }, BaseOpts));
 
 const Forum = mongoose.model('Forum', new mongoose.Schema({
@@ -169,10 +178,10 @@ const Forum = mongoose.model('Forum', new mongoose.Schema({
   name: String,
   description: String,
   icon: String,
-  isClosed: { type: Boolean, default: false }, // ADDED: Forum Closed Status
+  isClosed: { type: Boolean, default: false },
   threadCount: { type: Number, default: 0 },
   messageCount: { type: Number, default: 0 },
-  order: { type: Number, default: 0 }, // ADDED ORDER
+  order: { type: Number, default: 0 },
   lastPost: Object,
   subForums: Array 
 }, BaseOpts));
@@ -214,7 +223,7 @@ const Role = mongoose.model('Role', new mongoose.Schema({
   color: String,
   effect: String,
   isSystem: Boolean,
-  isDefault: { type: Boolean, default: false }, // ADDED: Default Role
+  isDefault: { type: Boolean, default: false },
   permissions: Object,
   priority: Number
 }, BaseOpts));
@@ -236,11 +245,7 @@ app.post('/api/auth/register', handle(async (req, res) => {
   if (exists) return res.status(400).json({ error: 'User already exists' });
 
   const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=random&color=fff&size=256&bold=true`;
-  
-  // Secure Password Handling
   const { salt, hash } = hashPassword(password);
-
-  // Determine Default Role
   const defaultRole = await Role.findOne({ isDefault: true });
   const roleId = defaultRole ? defaultRole.id : 'role_user';
 
@@ -248,10 +253,10 @@ app.post('/api/auth/register', handle(async (req, res) => {
     id: `u${Date.now()}`,
     username,
     email,
-    hash, // Store hash
-    salt, // Store salt
+    hash,
+    salt,
     avatarUrl,
-    roleId, // Use determined default role
+    roleId,
     joinedAt: new Date().toISOString()
   });
 
@@ -263,8 +268,6 @@ app.post('/api/auth/register', handle(async (req, res) => {
 
 app.post('/api/auth/login', handle(async (req, res) => {
   const { username, password } = req.body;
-  
-  // Select hash and salt explicitly as they are hidden by default
   const user = await User.findOne({ username }).select('+hash +salt');
   
   if (!user || !verifyPassword(password, user.hash, user.salt)) {
@@ -281,7 +284,6 @@ app.post('/api/auth/login', handle(async (req, res) => {
 app.delete('/api/forums/:id', handle(async (req, res) => {
   const forumId = req.params.id;
   await Forum.deleteOne({ id: forumId });
-  // Also delete subforums
   await Forum.deleteMany({ parentId: forumId }); 
   const threads = await Thread.find({ forumId });
   const threadIds = threads.map(t => t.id);
@@ -299,9 +301,7 @@ app.delete('/api/threads/:id', handle(async (req, res) => {
   res.json({ success: true });
 }));
 
-// Specific handler for Roles to ensure single default
 app.put('/api/roles/:id', handle(async (req, res) => {
-  // If setting this role as default, unset others first
   if (req.body.isDefault) {
     await Role.updateMany({ id: { $ne: req.params.id } }, { isDefault: false });
   }
@@ -312,7 +312,6 @@ app.put('/api/roles/:id', handle(async (req, res) => {
 // --- GENERIC CRUD ---
 const createCrud = (path, Model) => {
   app.get(`/api/${path}`, handle(async (req, res) => {
-    // MODIFIED: Sort by 'order' ascending (1), then natural order
     const items = await Model.find().sort({ order: 1 });
     res.json(items);
   }));
@@ -324,7 +323,6 @@ const createCrud = (path, Model) => {
   }));
 
   app.put(`/api/${path}/:id`, handle(async (req, res) => {
-    // Prevent updating critical auth fields via generic PUT
     delete req.body.hash;
     delete req.body.salt;
     const item = await Model.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true });
@@ -345,12 +343,26 @@ createCrud('posts', Post);
 createCrud('prefixes', Prefix);
 createCrud('roles', Role);
 
+// --- STATIC FILES (FOR PRODUCTION/RENDER) ---
+// Serve React Frontend if build exists
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// Handle React Routing (SPA Fallback)
+app.get('*', (req, res, next) => {
+  // If request is for API but hasn't been handled, it's a 404 API error, don't serve HTML
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
 app.listen(PORT, HOST, () => {
   console.log(`
   ===========================================
-  🚀 SECURE SERVER RUNNING ON PORT ${PORT}
-  📡 URL: http://${HOST}:${PORT}
-  🏥 Health Check: http://${HOST}:${PORT}/api/health
+  🚀 SERVER RUNNING ON PORT ${PORT}
+  📡 HOST: ${HOST} (Listening on all interfaces)
+  🔗 URL: http://${HOST === '0.0.0.0' ? '127.0.0.1' : HOST}:${PORT}
+  🏥 Health Check: /api/health
   ===========================================
   `);
 });
