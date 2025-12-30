@@ -17,11 +17,11 @@ const ForumRow: React.FC<Props> = ({ forum }) => {
   // Dynamic icon renderer
   const getIcon = (name: string) => {
     switch (name) {
-      case 'BookOpen': return <BookOpen className="w-5 h-5" />;
-      case 'Megaphone': return <Megaphone className="w-5 h-5" />;
-      case 'Scale': return <Scale className="w-5 h-5" />;
-      case 'Users': return <Users className="w-5 h-5" />;
-      default: return <MessageCircle className="w-5 h-5" />;
+      case 'BookOpen': return <BookOpen className="w-4 h-4 md:w-5 md:h-5" />;
+      case 'Megaphone': return <Megaphone className="w-4 h-4 md:w-5 md:h-5" />;
+      case 'Scale': return <Scale className="w-4 h-4 md:w-5 md:h-5" />;
+      case 'Users': return <Users className="w-4 h-4 md:w-5 md:h-5" />;
+      default: return <MessageCircle className="w-4 h-4 md:w-5 md:h-5" />;
     }
   };
 
@@ -32,10 +32,10 @@ const ForumRow: React.FC<Props> = ({ forum }) => {
   const hasNewActivity = forum.lastPost && (Date.now() - new Date(forum.lastPost.createdAt).getTime() < 24 * 60 * 60 * 1000);
 
   return (
-    <div className="group flex items-center gap-5 p-5 border-b border-[#222] hover:bg-[#161616] transition-colors last:border-0 relative overflow-hidden">
+    <div className="group flex items-center gap-3 md:gap-5 p-3 md:p-5 border-b border-[#222] hover:bg-[#161616] transition-colors last:border-0 relative overflow-hidden">
       
-      {/* Icon - White/Gray */}
-      <div className={`flex-shrink-0 w-10 h-10 rounded flex items-center justify-center transition-all duration-300 ${
+      {/* Icon - White/Gray - Smaller on Mobile */}
+      <div className={`flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded flex items-center justify-center transition-all duration-300 ${
         hasNewActivity 
           ? 'bg-white text-black' 
           : 'bg-[#222] text-gray-500'
@@ -44,14 +44,14 @@ const ForumRow: React.FC<Props> = ({ forum }) => {
       </div>
       
       <div className="flex-1 min-w-0">
-        <Link to={`/forum/${forum.id}`} className={`text-lg font-bold font-display transition-colors ${hasNewActivity ? 'text-white hover:text-gray-300' : 'text-gray-400 hover:text-gray-200'}`}>
+        <Link to={`/forum/${forum.id}`} className={`text-base md:text-lg font-bold font-display transition-colors ${hasNewActivity ? 'text-white hover:text-gray-300' : 'text-gray-400 hover:text-gray-200'}`}>
           {forum.name}
         </Link>
-        <p className="text-sm text-gray-500 mt-1 line-clamp-1 font-light">{forum.description}</p>
+        <p className="text-xs md:text-sm text-gray-500 mt-0.5 md:mt-1 line-clamp-1 font-light">{forum.description}</p>
         {subForums && subForums.length > 0 && (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 md:gap-2">
             {subForums.map(sf => (
-               <Link to={`/forum/${sf.id}`} key={sf.id} className="text-xs text-gray-500 hover:text-white cursor-pointer transition-colors bg-[#1a1a1a] px-1.5 py-0.5 rounded border border-[#333]">
+               <Link to={`/forum/${sf.id}`} key={sf.id} className="text-[10px] md:text-xs text-gray-500 hover:text-white cursor-pointer transition-colors bg-[#1a1a1a] px-1.5 py-0.5 rounded border border-[#333]">
                  {sf.name}
                </Link>
             ))}

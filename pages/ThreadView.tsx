@@ -98,7 +98,7 @@ const ThreadView: React.FC = () => {
             <div className="mb-8">
                {isEditingHeader ? (
                   <div className="mb-4 bg-[#111] p-4 rounded border border-[#333] space-y-3 animate-fade-in">
-                     <div className="flex gap-2">
+                     <div className="flex flex-col md:flex-row gap-2">
                         <select 
                            value={editPrefix} 
                            onChange={(e) => setEditPrefix(e.target.value)}
@@ -120,7 +120,7 @@ const ThreadView: React.FC = () => {
                      </div>
                   </div>
                ) : (
-                  <h1 className="text-3xl md:text-4xl font-bold font-display text-white mb-3 flex flex-wrap items-center gap-3">
+                  <h1 className="text-2xl md:text-4xl font-bold font-display text-white mb-3 flex flex-wrap items-center gap-2 md:gap-3">
                      {thread.isPinned && <Pin className="w-6 h-6 text-green-400 fill-green-400" />}
                      <PrefixBadge prefixId={thread.prefixId} />
                      {thread.title}
@@ -145,8 +145,8 @@ const ThreadView: React.FC = () => {
                   <span>{new Date(thread.createdAt).toLocaleString()}</span>
                   <div className="ml-auto flex items-center gap-2">
                      {thread.isLocked && (
-                        <span className="flex items-center gap-1 text-red-400 bg-red-900/20 px-2 py-0.5 rounded border border-red-900/40">
-                           <Lock className="w-3 h-3" /> {t('thread.locked')}
+                        <span className="flex items-center gap-1 text-red-400 bg-red-900/20 px-2 py-0.5 rounded border border-red-900/40 whitespace-nowrap">
+                           <Lock className="w-3 h-3" /> <span className="hidden md:inline">{t('thread.locked')}</span>
                         </span>
                      )}
                      <button 
@@ -167,7 +167,7 @@ const ThreadView: React.FC = () => {
                         onClick={() => toggleThreadLock(thread.id)}
                         className="text-xs flex items-center gap-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700 transition-colors"
                       >
-                         <Lock className="w-3 h-3" /> {thread.isLocked ? 'Unlock Thread' : 'Lock Thread'}
+                         <Lock className="w-3 h-3" /> {thread.isLocked ? 'Unlock' : 'Lock'}
                       </button>
                     )}
                     {canPin && (
@@ -175,7 +175,7 @@ const ThreadView: React.FC = () => {
                         onClick={() => toggleThreadPin(thread.id)}
                         className="text-xs flex items-center gap-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700 transition-colors"
                       >
-                         <Pin className="w-3 h-3" /> {thread.isPinned ? 'Unpin Thread' : 'Pin Thread'}
+                         <Pin className="w-3 h-3" /> {thread.isPinned ? 'Unpin' : 'Pin'}
                       </button>
                     )}
                  </div>
@@ -185,7 +185,7 @@ const ThreadView: React.FC = () => {
             {/* Locked Notice */}
             {thread.isLocked && (
                <div className="mb-6 p-4 bg-red-900/10 border border-red-800 rounded flex items-center gap-3 text-sm text-red-200">
-                  <div className="w-8 h-8 rounded bg-red-900/20 flex items-center justify-center text-red-500">
+                  <div className="w-8 h-8 rounded bg-red-900/20 flex items-center justify-center text-red-500 shrink-0">
                      <Lock className="w-4 h-4" />
                   </div>
                   <span>{t('thread.lockedMsg')}</span>
@@ -193,7 +193,7 @@ const ThreadView: React.FC = () => {
             )}
 
             {/* Posts */}
-            <div className="space-y-6">
+            <div className="space-y-4 md:space-y-6">
                {posts.map(post => (
                   <PostItem key={post.id} post={post} />
                ))}
@@ -201,10 +201,10 @@ const ThreadView: React.FC = () => {
 
             {/* Quick Reply */}
             {(!thread.isLocked || canLock) && canReply ? (
-               <div className="mt-8 glass-panel rounded p-6 bg-[#0d0d0d]">
+               <div className="mt-8 glass-panel rounded p-4 md:p-6 bg-[#0d0d0d]">
                   <h3 className="text-lg font-bold font-display text-white mb-4">{t('thread.writeReply')}</h3>
                   <div className="flex gap-4">
-                     <img src={currentUser.avatarUrl} className="w-10 h-10 rounded bg-[#222]" alt="" />
+                     <img src={currentUser.avatarUrl} className="hidden md:block w-10 h-10 rounded bg-[#222]" alt="" />
                      <div className="flex-1">
                         <BBCodeEditor 
                            value={replyContent}

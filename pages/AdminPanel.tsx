@@ -186,8 +186,8 @@ const AdminPanel: React.FC = () => {
              
              <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
                 <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><Activity className="w-5 h-5" /> Recent Registrations</h3>
-                <div className="overflow-hidden">
-                   <table className="w-full text-left text-sm text-gray-400">
+                <div className="overflow-x-auto">
+                   <table className="w-full text-left text-sm text-gray-400 min-w-[500px]">
                       <thead className="bg-gray-900 text-gray-200">
                          <tr>
                             <th className="px-4 py-2">User</th>
@@ -359,55 +359,57 @@ const AdminPanel: React.FC = () => {
 
       {activeTab === 'users' && (
         <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-          <table className="w-full text-left text-sm text-gray-400">
-            <thead className="bg-gray-750 uppercase font-medium">
-              <tr>
-                <th className="px-6 py-3">{t('admin.user')}</th>
-                <th className="px-6 py-3">{t('admin.email')}</th>
-                <th className="px-6 py-3">{t('admin.primaryRole')}</th>
-                <th className="px-6 py-3">{t('admin.secRole')}</th>
-                <th className="px-6 py-3">{t('admin.status')}</th>
-                <th className="px-6 py-3">{t('admin.actions')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-700">
-              {(Object.values(users) as User[]).map(user => (
-                  <tr key={user.id} className="hover:bg-gray-750">
-                    <td className="px-6 py-4 font-medium text-white">{user.username}</td>
-                    <td className="px-6 py-4">{hasPermission(currentUser, 'canViewUserEmails') ? (user.email || '-') : '***'}</td>
-                    <td className="px-6 py-4">
-                      <select 
-                        value={user.roleId} 
-                        onChange={(e) => adminUpdateUserRole(user.id, e.target.value, user.secondaryRoleId)} 
-                        className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs text-white outline-none w-full" 
-                        disabled={!hasPermission(currentUser, 'canManageRoles')}
-                      >
-                        {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-6 py-4">
-                      <select 
-                        value={user.secondaryRoleId || ''} 
-                        onChange={(e) => adminUpdateUserRole(user.id, user.roleId, e.target.value || undefined)} 
-                        className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs text-white outline-none w-full" 
-                        disabled={!hasPermission(currentUser, 'canManageRoles')}
-                      >
-                        <option value="">None</option>
-                        {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-6 py-4">{user.isBanned ? <span className="text-red-400 font-bold">BANNED</span> : <span className="text-green-400">Active</span>}</td>
-                    <td className="px-6 py-4">
-                       {hasPermission(currentUser, 'canBanUsers') && user.id !== currentUser.id && (
-                        <button onClick={() => banUser(user.id, !user.isBanned)} className={`px-3 py-1 rounded text-xs font-bold ${user.isBanned ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}`}>
-                          {user.isBanned ? t('admin.unban') : t('admin.ban')}
-                        </button>
-                       )}
-                    </td>
-                  </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-gray-400 min-w-[700px]">
+              <thead className="bg-gray-750 uppercase font-medium">
+                <tr>
+                  <th className="px-6 py-3">{t('admin.user')}</th>
+                  <th className="px-6 py-3">{t('admin.email')}</th>
+                  <th className="px-6 py-3">{t('admin.primaryRole')}</th>
+                  <th className="px-6 py-3">{t('admin.secRole')}</th>
+                  <th className="px-6 py-3">{t('admin.status')}</th>
+                  <th className="px-6 py-3">{t('admin.actions')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-700">
+                {(Object.values(users) as User[]).map(user => (
+                    <tr key={user.id} className="hover:bg-gray-750">
+                      <td className="px-6 py-4 font-medium text-white">{user.username}</td>
+                      <td className="px-6 py-4">{hasPermission(currentUser, 'canViewUserEmails') ? (user.email || '-') : '***'}</td>
+                      <td className="px-6 py-4">
+                        <select 
+                          value={user.roleId} 
+                          onChange={(e) => adminUpdateUserRole(user.id, e.target.value, user.secondaryRoleId)} 
+                          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs text-white outline-none w-full" 
+                          disabled={!hasPermission(currentUser, 'canManageRoles')}
+                        >
+                          {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-6 py-4">
+                        <select 
+                          value={user.secondaryRoleId || ''} 
+                          onChange={(e) => adminUpdateUserRole(user.id, user.roleId, e.target.value || undefined)} 
+                          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs text-white outline-none w-full" 
+                          disabled={!hasPermission(currentUser, 'canManageRoles')}
+                        >
+                          <option value="">None</option>
+                          {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-6 py-4">{user.isBanned ? <span className="text-red-400 font-bold">BANNED</span> : <span className="text-green-400">Active</span>}</td>
+                      <td className="px-6 py-4">
+                        {hasPermission(currentUser, 'canBanUsers') && user.id !== currentUser.id && (
+                          <button onClick={() => banUser(user.id, !user.isBanned)} className={`px-3 py-1 rounded text-xs font-bold ${user.isBanned ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}`}>
+                            {user.isBanned ? t('admin.unban') : t('admin.ban')}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

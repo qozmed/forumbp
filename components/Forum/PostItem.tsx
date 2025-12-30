@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Post } from '../../types';
 import { useForum } from '../../context/ForumContext';
@@ -92,23 +91,31 @@ const PostItem: React.FC<Props> = ({ post }) => {
   );
 
   return (
-    <div className="glass-panel rounded mb-6 overflow-hidden animate-fade-in bg-[#0d0d0d] border-[#222]" id={`post-${post.id}`}>
-      {/* Mobile Header */}
+    <div className="glass-panel rounded mb-4 md:mb-6 overflow-hidden animate-fade-in bg-[#0d0d0d] border-[#222]" id={`post-${post.id}`}>
+      
+      {/* Mobile-Only Simplified Header (Replaces Sidebar) */}
       <div className="md:hidden p-3 border-b border-[#333] flex justify-between items-center bg-[#111]">
-         <div className="flex items-center gap-2">
+         <div className="flex items-center gap-3">
             <Link to={`/user/${author.id}`}>
-               <img src={author.avatarUrl} className="w-8 h-8 rounded bg-[#222]" alt="" />
+               <img src={author.avatarUrl} className="w-9 h-9 rounded bg-[#222]" alt="" />
             </Link>
-            <Link to={`/user/${author.id}`} className="font-bold text-sm text-white">
-               {author.username}
-            </Link>
+            <div className="flex flex-col">
+               <Link to={`/user/${author.id}`} className="font-bold text-sm text-white flex items-center gap-2">
+                  {author.username}
+                  {roles[0] && <RoleBadge role={roles[0]} className="scale-75 origin-left" />}
+               </Link>
+               <span className="text-[10px] text-gray-500">{author.customTitle || roles[0]?.name}</span>
+            </div>
          </div>
-         <span className="text-xs text-gray-600">{formatDate(post.createdAt, language)}</span>
+         <div className="flex flex-col items-end">
+            <span className="text-[10px] text-gray-500">{formatDate(post.createdAt, language)}</span>
+            <span className="text-[10px] text-[#333] font-mono">#{post.number}</span>
+         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row min-h-[200px]">
-        {/* Author Sidebar */}
-        <div className="w-full md:w-56 bg-[#0a0a0a] p-6 flex flex-col items-center text-center border-r border-[#222] md:shrink-0">
+      <div className="flex flex-col md:flex-row min-h-[150px] md:min-h-[200px]">
+        {/* Author Sidebar (Desktop Only) */}
+        <div className="hidden md:flex w-56 bg-[#0a0a0a] p-6 flex-col items-center text-center border-r border-[#222] shrink-0">
           <Link to={`/user/${author.id}`} className="relative group mb-4 block">
              <img src={author.avatarUrl} className="relative w-24 h-24 rounded bg-[#111] border-2 border-[#333] shadow-lg object-cover transition-all duration-500" alt={author.username} />
           </Link>
@@ -144,14 +151,14 @@ const PostItem: React.FC<Props> = ({ post }) => {
 
         {/* Content Area */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#0d0d0d]">
-          {/* Post Meta */}
-          <div className="h-10 border-b border-[#222] flex justify-between items-center text-xs text-gray-500 px-6 bg-[#111]">
+          {/* Post Meta (Desktop Only) */}
+          <div className="hidden md:flex h-10 border-b border-[#222] justify-between items-center text-xs text-gray-500 px-6 bg-[#111]">
              <span>{formatDate(post.createdAt, language)}</span>
              <a href={`#post-${post.id}`} className="hover:text-white font-mono transition-colors opacity-50 hover:opacity-100">#{post.number}</a>
           </div>
 
           {/* Body */}
-          <div className="p-8 text-gray-300 text-sm leading-7 min-h-[150px]">
+          <div className="p-4 md:p-8 text-gray-300 text-sm leading-6 md:leading-7 min-h-[100px] md:min-h-[150px]">
              {isEditing ? (
                 <div className="animate-in fade-in duration-200">
                   <BBCodeEditor 
@@ -177,7 +184,7 @@ const PostItem: React.FC<Props> = ({ post }) => {
                        </button>
                     </div>
                  )}
-                 <div dangerouslySetInnerHTML={{ __html: parseBBCodeToHtml(post.content) }} className="prose prose-invert max-w-none" />
+                 <div dangerouslySetInnerHTML={{ __html: parseBBCodeToHtml(post.content) }} className="prose prose-invert max-w-none break-words" />
                </>
              )}
           </div>
@@ -185,7 +192,7 @@ const PostItem: React.FC<Props> = ({ post }) => {
           <div className="mt-auto">
             {/* Signature */}
             {!isEditing && author.signature && (
-              <div className="mx-6 mb-4 pt-4 border-t border-[#222]">
+              <div className="mx-4 md:mx-6 mb-4 pt-4 border-t border-[#222]">
                 <div 
                   className="text-xs text-gray-600 italic max-h-24 overflow-hidden opacity-70" 
                   dangerouslySetInnerHTML={{ __html: parseBBCodeToHtml(author.signature) }} 
@@ -194,7 +201,7 @@ const PostItem: React.FC<Props> = ({ post }) => {
             )}
 
             {/* Footer / Actions */}
-            <div className="bg-[#0a0a0a] px-6 py-3 border-t border-[#222] flex items-center justify-between">
+            <div className="bg-[#0a0a0a] px-4 md:px-6 py-3 border-t border-[#222] flex flex-wrap gap-2 items-center justify-between">
                <div className="flex items-center gap-2 text-xs text-gray-400 min-h-[24px]" title={likeTooltip}>
                   {likesCount > 0 && (
                      <div className="flex items-center gap-2 bg-[#222] px-2 py-1 rounded border border-[#333]">
@@ -203,37 +210,38 @@ const PostItem: React.FC<Props> = ({ post }) => {
                      </div>
                   )}
                </div>
-               <div className="flex items-center gap-4">
+               <div className="flex items-center gap-2 md:gap-4">
                   {canDelete && !isEditing && (
                     <button 
                       onClick={handleDelete}
-                      className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-400 hover:bg-red-900/20 px-3 py-1.5 rounded transition-all"
+                      className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-400 hover:bg-red-900/20 px-2 md:px-3 py-1.5 rounded transition-all"
                       title={post.number === 1 ? 'Delete Thread' : 'Delete Post'}
                     >
                       <Trash2 className="w-3.5 h-3.5" /> 
-                      {post.number === 1 ? 'Thread' : 'Delete'}
+                      <span className="hidden md:inline">{post.number === 1 ? 'Thread' : 'Delete'}</span>
                     </button>
                   )}
                   {canEdit && !isEditing && (
                     <button 
                       onClick={() => { setIsEditing(true); setEditContent(post.content); }}
-                      className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#222] px-3 py-1.5 rounded transition-all"
+                      className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#222] px-2 md:px-3 py-1.5 rounded transition-all"
                     >
-                      <Pencil className="w-3.5 h-3.5" /> Edit
+                      <Pencil className="w-3.5 h-3.5" /> <span className="hidden md:inline">Edit</span>
                     </button>
                   )}
                   <button 
                     onClick={() => toggleLike(post.id)}
-                    className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded transition-all ${
+                    className={`flex items-center gap-1.5 text-xs font-medium px-2 md:px-3 py-1.5 rounded transition-all ${
                       isLiked 
                         ? 'bg-white text-black border border-white' 
                         : 'text-gray-400 hover:text-white hover:bg-[#222]'
                     }`}
                   >
-                     <Heart className={`w-3.5 h-3.5 ${isLiked ? 'fill-black' : ''}`} /> {t('general.like')}
+                     <Heart className={`w-3.5 h-3.5 ${isLiked ? 'fill-black' : ''}`} /> 
+                     <span className="hidden md:inline">{t('general.like')}</span>
                   </button>
-                  <button className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#222] px-3 py-1.5 rounded transition-all">
-                     <CornerDownRight className="w-3.5 h-3.5" /> {t('general.quote')}
+                  <button className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#222] px-2 md:px-3 py-1.5 rounded transition-all">
+                     <CornerDownRight className="w-3.5 h-3.5" /> <span className="hidden md:inline">{t('general.quote')}</span>
                   </button>
                </div>
             </div>

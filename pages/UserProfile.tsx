@@ -17,7 +17,7 @@ const UserProfile: React.FC = () => {
   if (!currentUser) {
      return (
         <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
-           <div className="bg-[#1a1a1a] p-8 rounded-lg border border-[#333] text-center max-w-md">
+           <div className="bg-[#1a1a1a] p-8 rounded-lg border border-[#333] text-center max-w-md mx-4">
               <Lock className="w-12 h-12 text-gray-500 mx-auto mb-4" />
               <h2 className="text-xl font-bold text-white mb-2">{t('auth.login')} Required</h2>
               <p className="text-gray-400 mb-6">You must be logged in to view user profiles.</p>
@@ -39,11 +39,11 @@ const UserProfile: React.FC = () => {
   const canBan = hasPermission(currentUser, 'canBanUsers');
 
   return (
-    <div className="container mx-auto px-4 py-8 animate-fade-in">
+    <div className="container mx-auto px-4 py-4 md:py-8 animate-fade-in">
       {/* Cover / Header */}
       <div className="relative mb-6">
          {/* Banner */}
-         <div className="h-48 md:h-64 w-full rounded-t-xl overflow-hidden bg-[#111] relative">
+         <div className="h-32 md:h-64 w-full rounded-t-xl overflow-hidden bg-[#111] relative">
             {user.bannerUrl ? (
                <img src={user.bannerUrl} className="w-full h-full object-cover opacity-60" alt="" />
             ) : (
@@ -53,22 +53,22 @@ const UserProfile: React.FC = () => {
          </div>
 
          {/* Profile Bar */}
-         <div className="bg-[#0d0d0d] border border-[#222] border-t-0 rounded-b-xl px-6 pb-6 pt-0 shadow-lg relative flex flex-col md:flex-row items-start md:items-end gap-6">
+         <div className="bg-[#0d0d0d] border border-[#222] border-t-0 rounded-b-xl px-4 md:px-6 pb-6 pt-0 shadow-lg relative flex flex-col md:flex-row items-start md:items-end gap-4 md:gap-6">
             
             {/* Avatar - Negative margin to overlap banner */}
-            <div className="-mt-16 md:-mt-20 relative">
+            <div className="-mt-12 md:-mt-20 relative self-start">
                <img 
                  src={user.avatarUrl} 
-                 className={`w-32 h-32 md:w-40 md:h-40 rounded-xl bg-[#000] border-4 border-[#0d0d0d] shadow-2xl object-cover ${user.isBanned ? 'grayscale' : ''}`} 
+                 className={`w-24 h-24 md:w-40 md:h-40 rounded-xl bg-[#000] border-4 border-[#0d0d0d] shadow-2xl object-cover ${user.isBanned ? 'grayscale' : ''}`} 
                  alt={user.username} 
                />
-               {!user.isBanned && <div className={`absolute bottom-2 right-2 w-4 h-4 rounded-full border-2 border-[#0d0d0d] bg-green-500`} title={t('user.online')}></div>}
+               {!user.isBanned && <div className={`absolute bottom-1 right-1 md:bottom-2 md:right-2 w-3 h-3 md:w-4 md:h-4 rounded-full border-2 border-[#0d0d0d] bg-green-500`} title={t('user.online')}></div>}
             </div>
 
-            <div className="flex-1 min-w-0 pt-2 w-full">
+            <div className="flex-1 min-w-0 pt-0 md:pt-2 w-full">
                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                     <h1 className="text-3xl font-bold font-display text-white mb-1 flex items-center gap-3">
+                     <h1 className="text-2xl md:text-3xl font-bold font-display text-white mb-1 flex flex-wrap items-center gap-2 md:gap-3">
                         {user.username}
                         <div className="flex gap-2">
                            {roles.map(r => <RoleBadge key={r.id} role={r} />)}
@@ -82,20 +82,20 @@ const UserProfile: React.FC = () => {
                      <p className="text-gray-500 text-sm">{user.customTitle || (roles[0] ? roles[0].name : t('user.member'))}</p>
                   </div>
                   
-                  <div className="flex gap-4 items-center">
-                     {/* Quick Stats Grid */}
-                     <div className="flex gap-8 text-center bg-[#111] p-3 rounded border border-[#222]">
-                        <div>
+                  <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full md:w-auto">
+                     {/* Quick Stats Grid - Responsive */}
+                     <div className="flex w-full sm:w-auto justify-between sm:justify-start gap-4 md:gap-8 text-center bg-[#111] p-3 rounded border border-[#222]">
+                        <div className="flex-1 sm:flex-none">
                            <div className="text-lg font-bold text-white font-mono">{user.messages}</div>
                            <div className="text-[10px] uppercase text-gray-500 tracking-wider">{t('user.messages')}</div>
                         </div>
                         <div className="w-px bg-[#333]"></div>
-                        <div>
+                        <div className="flex-1 sm:flex-none">
                            <div className="text-lg font-bold text-white font-mono">{user.reactions}</div>
                            <div className="text-[10px] uppercase text-gray-500 tracking-wider">{t('user.reactions')}</div>
                         </div>
                         <div className="w-px bg-[#333]"></div>
-                        <div>
+                        <div className="flex-1 sm:flex-none">
                            <div className="text-lg font-bold text-white font-mono">{user.points}</div>
                            <div className="text-[10px] uppercase text-gray-500 tracking-wider">{t('user.points')}</div>
                         </div>
@@ -104,7 +104,7 @@ const UserProfile: React.FC = () => {
                      {canBan && !roles[0]?.isSystem && user.id !== currentUser.id && (
                         <button 
                           onClick={() => banUser(user.id, !user.isBanned)}
-                          className={`px-4 py-2 rounded font-bold text-sm shadow-lg ${user.isBanned ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-red-600 hover:bg-red-500 text-white'}`}
+                          className={`w-full sm:w-auto px-4 py-2 rounded font-bold text-sm shadow-lg ${user.isBanned ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-red-600 hover:bg-red-500 text-white'}`}
                         >
                            {user.isBanned ? t('user.unban') : t('user.ban')}
                         </button>
@@ -117,7 +117,7 @@ const UserProfile: React.FC = () => {
 
       <div className="flex flex-col lg:flex-row gap-8">
          {/* Left Column: Info & Signature */}
-         <div className="w-full lg:w-80 flex flex-col gap-6">
+         <div className="w-full lg:w-80 flex flex-col gap-6 order-2 lg:order-1">
             <div className="glass-panel rounded p-5 bg-[#0d0d0d]">
                <h3 className="font-bold text-white uppercase tracking-wider text-xs mb-4 flex items-center gap-2">
                   <User className="w-4 h-4" /> {t('user.about')} {user.username}
@@ -152,7 +152,7 @@ const UserProfile: React.FC = () => {
          </div>
 
          {/* Right Column: Recent Activity */}
-         <div className="flex-1 min-w-0">
+         <div className="flex-1 min-w-0 order-1 lg:order-2">
             <div className="glass-panel rounded overflow-hidden bg-[#0d0d0d]">
                <div className="px-6 py-4 border-b border-[#222] bg-[#1a1a1a]">
                   <h3 className="font-bold text-white flex items-center gap-2">
@@ -169,9 +169,9 @@ const UserProfile: React.FC = () => {
                         if (!thread) return null;
                         
                         return (
-                           <div key={post.id} className="p-5 hover:bg-[#161616] transition-colors">
+                           <div key={post.id} className="p-4 md:p-5 hover:bg-[#161616] transition-colors">
                               <div className="flex flex-col gap-2">
-                                 <div className="flex items-center gap-2 mb-1">
+                                 <div className="flex flex-wrap items-center gap-2 mb-1">
                                     <PrefixBadge prefixId={thread.prefixId} />
                                     <Link to={`/thread/${thread.id}#post-${post.id}`} className="font-bold text-gray-300 hover:text-white transition-colors">
                                        {thread.title}
