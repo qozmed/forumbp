@@ -1,3 +1,4 @@
+
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -287,6 +288,76 @@ app.post('/api/auth/login', handle(async (req, res) => {
   res.json(u);
 }));
 
+// --- SMART FORUM FETCH (SELF-HEALING) ---
+// This route overrides the generic CRUD to ensure consistency
+app.get('/api/forums', handle(async (req, res) => {
+  const forums = await Forum.find().sort({ order: 1 });
+  
+  // Real-time consistency check
+  // Iterate through all forums and ensure their statistics match the real DB state
+  const syncedForums = await Promise.all(forums.map(async (f) => {
+    // 1. Get real thread count
+    const realThreadCount = await Thread.countDocuments({ forumId: f.id });
+    
+    // 2. Get real message count (all posts in threads of this forum)
+    const threadsInForum = await Thread.find({ forumId: f.id }).select('id');
+    const threadIds = threadsInForum.map(t => t.id);
+    const realMessageCount = await Post.countDocuments({ threadId: { $in: threadIds } });
+
+    // 3. Get real last post (based on latest activity in ANY thread in this forum)
+    const latestThread = await Thread.findOne({ forumId: f.id }).sort({ 'lastPost.createdAt': -1 });
+    
+    let needsUpdate = false;
+    let updates = {};
+
+    // Check Counts
+    if (f.threadCount !== realThreadCount) {
+       updates.threadCount = realThreadCount;
+       needsUpdate = true;
+    }
+    if (f.messageCount !== realMessageCount) {
+       updates.messageCount = realMessageCount;
+       needsUpdate = true;
+    }
+
+    // Check Last Post Validity
+    if (!latestThread) {
+       // If no threads exist, lastPost should be null
+       if (f.lastPost) {
+          updates.lastPost = null;
+          needsUpdate = true;
+       }
+    } else {
+       // If latest thread exists, does forum.lastPost match it?
+       // We check ID and Timestamp to be sure
+       const actualLastPostTime = latestThread.lastPost ? latestThread.lastPost.createdAt : latestThread.createdAt;
+       const storedLastPostTime = f.lastPost ? f.lastPost.createdAt : null;
+
+       if (!f.lastPost || f.lastPost.threadId !== latestThread.id || storedLastPostTime !== actualLastPostTime) {
+          updates.lastPost = {
+             threadId: latestThread.id,
+             threadTitle: latestThread.title,
+             authorId: latestThread.lastPost ? latestThread.lastPost.authorId : latestThread.authorId,
+             createdAt: actualLastPostTime,
+             prefixId: latestThread.prefixId
+          };
+          needsUpdate = true;
+       }
+    }
+
+    if (needsUpdate) {
+       // Silently update DB to correct the state
+       console.log(`🔧 [AutoFix] Correcting stats for forum ${f.id}`);
+       const updated = await Forum.findOneAndUpdate({ id: f.id }, updates, { new: true });
+       return updated;
+    }
+    
+    return f;
+  }));
+
+  res.json(syncedForums);
+}));
+
 // --- SPECIFIC HANDLERS ---
 app.delete('/api/forums/:id', handle(async (req, res) => {
   const forumId = req.params.id;
@@ -318,10 +389,13 @@ app.put('/api/roles/:id', handle(async (req, res) => {
 
 // --- GENERIC CRUD ---
 const createCrud = (path, Model) => {
-  app.get(`/api/${path}`, handle(async (req, res) => {
-    const items = await Model.find().sort({ order: 1 });
-    res.json(items);
-  }));
+  // Generic GET (Used for everything except Forums now, as Forums has a custom handler above)
+  if (path !== 'forums') {
+    app.get(`/api/${path}`, handle(async (req, res) => {
+      const items = await Model.find().sort({ order: 1 });
+      res.json(items);
+    }));
+  }
 
   app.post(`/api/${path}`, handle(async (req, res) => {
     if (!req.body.id) req.body.id = `${path[0]}${Date.now()}`;
@@ -344,7 +418,7 @@ const createCrud = (path, Model) => {
 
 createCrud('users', User);
 createCrud('categories', Category);
-createCrud('forums', Forum);
+createCrud('forums', Forum); // Keeps POST/PUT/DELETE, but GET is overridden above
 createCrud('threads', Thread);
 createCrud('posts', Post);
 createCrud('prefixes', Prefix);
