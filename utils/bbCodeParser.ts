@@ -1,6 +1,5 @@
 /**
- * BBCode Parser - Robust "Ironclad" Version
- * Handles bi-directional conversion with strict HTML normalization.
+ * BBCode Parser - Fixed Newline & Spacing Logic
  */
 
 // --- 1. Security & Helpers ---
@@ -17,21 +16,15 @@ export const escapeHtml = (text: string) => {
     .replace(/on\w+=/gi, "blocked="); 
 };
 
-// Generates a random placeholder ID to protect content like [code] blocks
 const generateId = () => `__BB_TOKEN_${Math.random().toString(36).substr(2, 9)}__`;
 
-// Robust RGB to Hex converter for consistent color handling
 const rgbToHex = (color: string): string | null => {
     if (!color) return null;
     if (color.startsWith('#')) return color;
-    
     const match = color.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+(?:\.\d+)?))?\)$/);
     if (!match) return null;
-    
     const hex = (x: string) => ("0" + parseInt(x).toString(16)).slice(-2);
     const result = "#" + hex(match[1]) + hex(match[2]) + hex(match[3]);
-    
-    // Ignore black/inherit as they are defaults
     if (result === '#000000' || result === '#0d0d0d') return null; 
     return result;
 };
@@ -41,18 +34,21 @@ const rgbToHex = (color: string): string | null => {
 export const parseBBCodeToHtml = (content: string) => {
   if (!content) return '';
 
+  // Step 0: Normalize newlines
+  // We remove a single newline immediately following a closing block tag,
+  // because the HTML block element (div, blockquote) already provides the visual break.
+  // If the user wanted an EMPTY line, they would have typed two newlines.
+  let processed = content.replace(/(\[\/(center|left|right|justify|quote|code)\])\n/gi, '$1');
+
   const placeholders: Record<string, string> = {};
   
-  // A. Extract Leaf Tags (Content that should NOT be parsed recursively)
-  
-  // 1. Code Blocks
-  let processed = content.replace(/\[code\]([\s\S]*?)\[\/code\]/gi, (_, codeContent) => {
+  // A. Extract Leaf Tags
+  processed = processed.replace(/\[code\]([\s\S]*?)\[\/code\]/gi, (_, codeContent) => {
     const id = generateId();
     placeholders[id] = `<pre class="bg-[#0a0a0a] p-4 rounded border border-[#333] overflow-x-auto my-3 text-sm font-mono text-gray-300 shadow-inner"><code>${escapeHtml(codeContent)}</code></pre>`;
     return id;
   });
 
-  // 2. Images
   processed = processed.replace(/\[img\](.*?)\[\/img\]/gi, (_, url) => {
     const id = generateId();
     const safeUrl = escapeHtml(url.trim());
@@ -60,7 +56,6 @@ export const parseBBCodeToHtml = (content: string) => {
     return id;
   });
 
-  // 3. YouTube
   processed = processed.replace(/\[youtube\](.*?)\[\/youtube\]/gi, (_, videoId) => {
     const id = generateId();
     const safeId = escapeHtml(videoId.trim());
@@ -68,12 +63,9 @@ export const parseBBCodeToHtml = (content: string) => {
     return id;
   });
 
-  // B. Standard Formatting (Using Regex for simplicity in display mode)
-  // We escape HTML first to prevent XSS, then apply formatting.
-  
+  // B. Standard Formatting
   processed = escapeHtml(processed); 
 
-  // Regex Replacements
   const replacements: [RegExp, string][] = [
     [/\[b\]([\s\S]*?)\[\/b\]/gi, '<strong class="text-white font-bold">$1</strong>'],
     [/\[i\]([\s\S]*?)\[\/i\]/gi, '<em class="italic">$1</em>'],
@@ -85,15 +77,12 @@ export const parseBBCodeToHtml = (content: string) => {
     [/\[justify\]([\s\S]*?)\[\/justify\]/gi, '<div class="text-justify">$1</div>'],
     [/\[quote\]([\s\S]*?)\[\/quote\]/gi, '<blockquote class="border-l-2 border-gray-600 pl-4 py-2 my-4 text-gray-500 italic bg-[#111] p-2 rounded-r">$1</blockquote>'],
     [/\[url=(.*?)\](.*?)\[\/url\]/gi, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-cyan-400 hover:text-cyan-300 underline decoration-cyan-900 hover:decoration-cyan-400 transition-all">$2</a>'],
-    // Handle Color with strict quoting optional
     [/\[color=['"]?(.*?)['"]?\]([\s\S]*?)\[\/color\]/gi, '<span style="color:$1">$2</span>'] 
   ];
 
-  // Apply replacements iteratively to handle simple nesting
   replacements.forEach(([regex, replacement]) => {
     let old = processed;
     processed = processed.replace(regex, replacement);
-    // Simple 1-level nested retry
     if (old !== processed) processed = processed.replace(regex, replacement);
   });
 
@@ -110,14 +99,13 @@ export const parseBBCodeToHtml = (content: string) => {
 
 // --- 3. Editor Helpers (HTML -> BBCode & BBCode -> HTML for Editor) ---
 
-/**
- * Converts BBCode to HTML specifically for the WYSIWYG editor.
- * Uses inline styles preferred by contentEditable.
- */
 export const bbcodeToEditorHtml = (content: string) => {
   if (!content) return '';
   
-  return content
+  // Ensure we strip the newline after block tags here too, so the editor doesn't show double gaps on load
+  let processed = content.replace(/(\[\/(center|left|right|justify|quote|code)\])\n/gi, '$1');
+
+  return processed
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -137,21 +125,15 @@ export const bbcodeToEditorHtml = (content: string) => {
     .replace(/\[code\]([\s\S]*?)\[\/code\]/gi, '<pre>$1</pre>');
 };
 
-/**
- * The "Ironclad" HTML to BBCode Converter.
- * Traverses DOM tree and checks Tags AND Styles to handle cross-browser contentEditable differences.
- */
 export const htmlToBBCode = (html: string) => {
   const temp = document.createElement('div');
   temp.innerHTML = html;
   
   const traverse = (node: Node): string => {
-    // 1. Text Nodes
     if (node.nodeType === Node.TEXT_NODE) {
       return node.textContent || '';
     }
     
-    // 2. Element Nodes
     if (node.nodeType !== Node.ELEMENT_NODE) {
       return '';
     }
@@ -160,43 +142,32 @@ export const htmlToBBCode = (html: string) => {
     const style = el.style;
     const tagName = el.tagName.toUpperCase();
     
-    // Process children first
     let content = '';
     el.childNodes.forEach(child => { content += traverse(child); });
 
-    // --- LOGIC: Wrap content based on Tags OR Styles ---
+    // --- Strict Tag Handling ---
     
-    // BOLD
+    // Formatting
     if (tagName === 'B' || tagName === 'STRONG' || style.fontWeight === 'bold' || parseInt(style.fontWeight || '0') >= 700) {
         if (!content.startsWith('[b]')) content = `[b]${content}[/b]`;
     }
-
-    // ITALIC
     if (tagName === 'I' || tagName === 'EM' || style.fontStyle === 'italic') {
          if (!content.startsWith('[i]')) content = `[i]${content}[/i]`;
     }
-
-    // UNDERLINE
     if (tagName === 'U' || style.textDecoration.includes('underline')) {
          if (!content.startsWith('[u]')) content = `[u]${content}[/u]`;
     }
-
-    // STRIKE
     if (tagName === 'S' || tagName === 'STRIKE' || tagName === 'DEL' || style.textDecoration.includes('line-through')) {
          if (!content.startsWith('[s]')) content = `[s]${content}[/s]`;
     }
-
-    // COLOR
     const color = rgbToHex(style.color) || el.getAttribute('color');
     if (color && !['#000000', '#0d0d0d', '#0a0a0a'].includes(color)) {
          content = `[color=${color}]${content}[/color]`;
     }
 
-    // ALIGNMENT (Divs/Paragraphs)
+    // Structural Elements
     if (tagName === 'DIV' || tagName === 'P') {
         let align = style.textAlign || el.getAttribute('align');
-        
-        // Handle CSS classes if present (e.g., text-center)
         if (el.className.includes('text-center')) align = 'center';
         if (el.className.includes('text-right')) align = 'right';
 
@@ -205,11 +176,13 @@ export const htmlToBBCode = (html: string) => {
         else if (align === 'justify') content = `[justify]${content}[/justify]`;
         else if (align === 'left') content = `[left]${content}[/left]`;
         
-        // Block elements imply a newline.
+        // Critical Fix: Only add newline for generic block elements that didn't become BBCode tags.
+        // If it became [center], the tag itself acts as a block.
+        // We add a newline to separate it from the *next* element in raw BBCode, 
+        // but the cleanup step below handles duplicates.
         return content + '\n';
     }
 
-    // SPECIFIC TAGS
     if (tagName === 'BR') return '\n';
     if (tagName === 'IMG') return `[img]${el.getAttribute('src') || ''}[/img]`;
     if (tagName === 'A') return `[url=${el.getAttribute('href') || '#'}]${content}[/url]`;
@@ -221,9 +194,16 @@ export const htmlToBBCode = (html: string) => {
   
   let bbcode = traverse(temp);
   
-  // Final Cleanup:
-  // 1. Collapse multiple newlines into max 2
-  bbcode = bbcode.replace(/\n\s*\n\s*\n/g, '\n\n');
-  // 2. Trim whitespace
+  // --- CLEANUP (The "Ironclad" logic) ---
+  
+  // 1. Remove newlines immediately following closing block tags.
+  //    [center]Text[/center]\n -> [center]Text[/center]
+  //    This prevents the loop: Tag -> Div+\n -> Tag+\n -> Div+\n+\n
+  bbcode = bbcode.replace(/(\[\/(center|left|right|justify|quote|code)\])\s*\n/gi, '$1');
+
+  // 2. Collapse 3+ newlines into 2 (Max 1 empty line visually)
+  bbcode = bbcode.replace(/\n{3,}/g, '\n\n');
+  
+  // 3. Trim outer whitespace
   return bbcode.trim();
 };

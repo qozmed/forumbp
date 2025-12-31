@@ -14,31 +14,24 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
   const editorRef = useRef<HTMLDivElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
   
-  // Tracks the last BBCode we sent to the parent to prevent loops
   const lastEmittedValue = useRef<string | null>(null);
   const isTyping = useRef(false);
   
   const { t } = useLanguage();
 
-  // --- Synchronization Logic ---
-
   useEffect(() => {
     if (!editorRef.current) return;
 
-    // 1. Convert incoming BBCode to HTML
+    // Convert incoming BBCode to HTML
     const htmlFromProps = bbcodeToEditorHtml(value || '');
 
-    // 2. Initial Population: If editor is empty but we have content, fill it.
     if (editorRef.current.innerHTML === '' && htmlFromProps !== '') {
         editorRef.current.innerHTML = htmlFromProps;
         lastEmittedValue.current = value;
         return;
     }
 
-    // 3. Update if external value changed AND we are not currently typing
-    // This prevents the cursor from jumping back to start while user types
     if (!isTyping.current && value !== lastEmittedValue.current) {
-         // Only update if semantically different to avoid minor cursor jumps
          if (htmlToBBCode(editorRef.current.innerHTML) !== value) {
             editorRef.current.innerHTML = htmlFromProps;
          }
@@ -46,13 +39,10 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
     }
   }, [value]);
 
-  // --- Input Handling ---
-
   const handleInput = () => {
     if (!editorRef.current) return;
     
     isTyping.current = true;
-
     const html = editorRef.current.innerHTML;
     const bbcode = htmlToBBCode(html);
     
@@ -61,11 +51,8 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
         onChange(bbcode);
     }
     
-    // Reset typing flag after a short delay
     setTimeout(() => { isTyping.current = false; }, 100);
   };
-
-  // --- Toolbar Commands ---
 
   const execCmd = (command: string, val: string | undefined = undefined) => {
     if (!editorRef.current) return;
@@ -144,11 +131,16 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
         ))}
       </div>
       
+      {/* 
+         Applied prose classes specifically to neutralize margin collapse issues 
+         that often cause visual discrepancy between Editor and Display.
+         Added [&>div]:m-0 [&>p]:m-0 to remove default block spacing inside editor.
+      */}
       <div
         ref={editorRef}
         contentEditable
         onInput={handleInput}
-        className={`w-full bg-[#0a0a0a] p-4 text-gray-200 focus:outline-none min-h-[300px] max-h-[600px] overflow-y-auto prose prose-invert prose-p:my-1 prose-pre:bg-black prose-pre:border prose-pre:border-[#333] ${className}`}
+        className={`w-full bg-[#0a0a0a] p-4 text-gray-200 focus:outline-none min-h-[300px] max-h-[600px] overflow-y-auto prose prose-invert prose-p:my-0 prose-p:leading-normal [&>div]:m-0 [&>p]:m-0 ${className}`}
         style={{ whiteSpace: 'pre-wrap' }}
         data-placeholder={placeholder}
       />
