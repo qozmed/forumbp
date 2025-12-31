@@ -1,4 +1,16 @@
-// Stronger XSS protection
+/**
+ * BBCode Parser
+ * 
+ * Strategy:
+ * 1. "Leaf" tags (Code, Img, YouTube) are extracted first and replaced with placeholders.
+ *    This prevents their content from being parsed as BBCode or HTML.
+ * 2. "Stack" parsing is used for formatting tags (B, I, Color, etc.).
+ *    This ensures HTML validity (e.g. correctly handling [b][i]...[/b][/i] by auto-closing).
+ * 3. Placeholders are restored.
+ */
+
+// --- 1. Security & Helpers ---
+
 export const escapeHtml = (text: string) => {
   if (!text) return '';
   return text
@@ -7,89 +19,168 @@ export const escapeHtml = (text: string) => {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;")
-    .replace(/javascript:/gi, "blocked:") // Prevent basic JS injection via href
-    .replace(/on\w+=/gi, "blocked="); // Prevent event handlers
+    .replace(/javascript:/gi, "blocked:")
+    .replace(/on\w+=/gi, "blocked="); 
 };
 
-/**
- * Converts BBCode to HTML for Display (Post View)
- * Uses a loop to handle nested tags correctly (e.g. [b][color]...[/color][/b])
- */
+// Generates a random placeholder ID
+const generateId = () => `__BB_TOKEN_${Math.random().toString(36).substr(2, 9)}__`;
+
+// Helper to sanitize color input
+const sanitizeColor = (color: string) => {
+    // Remove quotes if present
+    const cleaned = color.replace(/['"]/g, '').trim();
+    // Allow hex, rgb, rgba, and standard color names
+    if (/^#([A-Fa-f0-9]{3}){1,2}$/.test(cleaned)) return cleaned;
+    if (/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+(?:\.\d+)?))?\)$/.test(cleaned)) return cleaned;
+    if (/^[a-zA-Z]+$/.test(cleaned)) return cleaned;
+    return null; 
+};
+
+// --- 2. Main Parser ---
+
 export const parseBBCodeToHtml = (content: string) => {
   if (!content) return '';
+
+  const placeholders: Record<string, string> = {};
   
-  // 1. Escape HTML entities first to prevent XSS
-  let parsed = escapeHtml(content);
+  // --- A. Extract Leaf Tags (Content that should NOT be parsed) ---
+  
+  // 1. Code Blocks
+  let processed = content.replace(/\[code\]([\s\S]*?)\[\/code\]/gi, (_, codeContent) => {
+    const id = generateId();
+    placeholders[id] = `<pre class="bg-[#0a0a0a] p-4 rounded border border-[#333] overflow-x-auto my-3 text-sm font-mono text-gray-300 shadow-inner"><code>${escapeHtml(codeContent)}</code></pre>`;
+    return id;
+  });
 
-  // 2. Recursive Parsing Loop
-  // We loop until the string stops changing. This allows for:
-  // - Deeply nested tags (e.g., [b][i]Text[/i][/b])
-  // - Nested tags of the same type (e.g., [quote] [quote] ... [/quote] [/quote])
-  // - Correct ordering execution
-  let previous = "";
-  let loopCount = 0;
-  const MAX_LOOPS = 20; // Prevent infinite loops just in case
+  // 2. Images
+  processed = processed.replace(/\[img\](.*?)\[\/img\]/gi, (_, url) => {
+    const id = generateId();
+    const safeUrl = escapeHtml(url.trim());
+    placeholders[id] = `<img src="${safeUrl}" class="max-w-full rounded border border-[#333] my-3 shadow inline-block" alt="Image" loading="lazy" />`;
+    return id;
+  });
 
-  while (parsed !== previous && loopCount < MAX_LOOPS) {
-    previous = parsed;
-    loopCount++;
+  // 3. YouTube
+  processed = processed.replace(/\[youtube\](.*?)\[\/youtube\]/gi, (_, videoId) => {
+    const id = generateId();
+    const safeId = escapeHtml(videoId.trim());
+    placeholders[id] = `<div class="relative w-full aspect-video rounded overflow-hidden shadow-2xl my-4 border border-[#333]"><iframe class="absolute top-0 left-0 w-full h-full" src="https://www.youtube.com/embed/${safeId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+    return id;
+  });
 
-    // --- Simple Formatting ---
-    parsed = parsed
-      .replace(/\[b\]([\s\S]*?)\[\/b\]/gi, '<strong class="text-white font-bold">$1</strong>')
-      .replace(/\[i\]([\s\S]*?)\[\/i\]/gi, '<em class="italic">$1</em>')
-      .replace(/\[u\]([\s\S]*?)\[\/u\]/gi, '<u class="underline">$1</u>')
-      .replace(/\[s\]([\s\S]*?)\[\/s\]/gi, '<s class="line-through opacity-70">$1</s>');
+  // --- B. Stack Parser for Nestable Tags ---
+  
+  // Definitions of supported tags
+  const tags: Record<string, { open: (attr: string) => string, close: string | ((attr: string) => string) }> = {
+    b: { open: () => '<strong class="text-white font-bold">', close: '</strong>' },
+    i: { open: () => '<em class="italic">', close: '</em>' },
+    u: { open: () => '<u class="underline">', close: '</u>' },
+    s: { open: () => '<s class="line-through opacity-70">', close: '</s>' },
+    center: { open: () => '<div class="text-center">', close: '</div>' },
+    left: { open: () => '<div class="text-left">', close: '</div>' },
+    right: { open: () => '<div class="text-right">', close: '</div>' },
+    justify: { open: () => '<div class="text-justify">', close: '</div>' },
+    quote: { 
+        open: (attr) => attr 
+            ? `<div class="my-4 border-l-2 border-white bg-[#1a1a1a] p-4 rounded-r"><div class="text-xs text-white font-bold mb-2 uppercase tracking-wider opacity-70">${escapeHtml(attr)} wrote:</div><div class="text-gray-400 italic pl-1">`
+            : `<blockquote class="border-l-2 border-gray-600 pl-4 py-2 my-4 text-gray-500 italic bg-[#111] p-2 rounded-r">`,
+        close: (attr: string) => attr ? `</div></div>` : `</blockquote>`
+    },
+    url: {
+        open: (attr) => `<a href="${escapeHtml(attr || '#')}" target="_blank" rel="noopener noreferrer" class="text-cyan-400 hover:text-cyan-300 underline decoration-cyan-900 hover:decoration-cyan-400 transition-all">`,
+        close: '</a>'
+    },
+    color: {
+        open: (attr) => {
+            const validColor = sanitizeColor(attr);
+            return validColor ? `<span style="color:${validColor}">` : '<span>';
+        },
+        close: '</span>'
+    }
+  };
 
-    // --- Alignment ---
-    parsed = parsed
-      .replace(/\[center\]([\s\S]*?)\[\/center\]/gi, '<div class="text-center">$1</div>')
-      .replace(/\[left\]([\s\S]*?)\[\/left\]/gi, '<div class="text-left">$1</div>')
-      .replace(/\[right\]([\s\S]*?)\[\/right\]/gi, '<div class="text-right">$1</div>')
-      .replace(/\[justify\]([\s\S]*?)\[\/justify\]/gi, '<div class="text-justify">$1</div>');
+  // Tokenize the string: Find [tag]...[/tag] or [tag=val]
+  // Regex looks for [ /? tagName (=val)? ]
+  const tokens = processed.split(/(\[\/?[a-zA-Z0-9]+(?:=(?:.|[\r\n])*?)?\])/g);
+  
+  const stack: { tag: string, attr: string }[] = []; 
+  let output: string[] = [];
 
-    // --- Complex Tags (Color) ---
-    // Regex explanation:
-    // \[color= : matches start
-    // ['"]? : optional quote
-    // ([#a-zA-Z0-9,\s\(\)\-\.]+) : captures the color value (hex, name, rgb), rejects dangerous chars
-    // ['"]? : optional closing quote
-    // \] : end of opening tag
-    // ([\s\S]*?) : content
-    // \[\/color\] : closing tag
-    parsed = parsed.replace(/\[color=['"]?([#a-zA-Z0-9,\s\(\)\-\.]+)['"]?\]([\s\S]*?)\[\/color\]/gi, (_, color, text) => {
-        return `<span style="color:${color}">${text}</span>`;
-    });
+  tokens.forEach(token => {
+    // Check if it looks like a tag
+    const match = token.match(/^\[(\/?)([a-zA-Z0-9]+)(?:=(.*))?\]$/);
+    
+    if (match) {
+      const isClose = match[1] === '/';
+      const tagName = match[2].toLowerCase();
+      const attr = match[3] ? match[3].replace(/^['"]|['"]$/g, '') : ''; // Remove surrounding quotes
 
-    // --- Images ---
-    parsed = parsed.replace(/\[img\](.*?)\[\/img\]/gi, '<img src="$1" class="max-w-full rounded border border-[#333] my-3 shadow inline-block" alt="Image" />');
+      if (tags[tagName]) {
+        if (!isClose) {
+          // OPEN TAG
+          output.push(tags[tagName].open(attr));
+          stack.push({ tag: tagName, attr });
+        } else {
+          // CLOSE TAG
+          // Check if this tag is actually open in the stack
+          // We assume we want to close the most recent instance of this tag.
+          // Standard HTML parsing behavior: close all intermediate tags to close this one.
+          
+          const stackTags = stack.map(s => s.tag);
+          const index = stackTags.lastIndexOf(tagName);
 
-    // --- Links ---
-    parsed = parsed.replace(/\[url=['"]?(.*?)['"]?\]([\s\S]*?)\[\/url\]/gi, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-cyan-400 hover:text-cyan-300 underline decoration-cyan-900 hover:decoration-cyan-400 transition-all">$2</a>');
+          if (index !== -1) {
+            // Unwind stack until we find the matching tag
+            // We pop from the end until we reach the index
+            while (stack.length > index) {
+                const popped = stack.pop();
+                if (popped) {
+                    const closeDef = tags[popped.tag].close;
+                    output.push(typeof closeDef === 'function' ? closeDef(popped.attr) : closeDef);
+                }
+            }
+          } else {
+             // Orphan close tag, treat as text
+             output.push(escapeHtml(token));
+          }
+        }
+      } else {
+        // Unknown tag, treat as text
+        output.push(escapeHtml(token));
+      }
+    } else {
+      // It's text content
+      // Handle newlines
+      const text = escapeHtml(token).replace(/\n/g, '<br />');
+      output.push(text);
+    }
+  });
 
-    // --- Quotes (Specific User) ---
-    parsed = parsed.replace(/\[quote=['"]?(.*?)['"]?\]([\s\S]*?)\[\/quote\]/gi, '<div class="my-4 border-l-2 border-white bg-[#1a1a1a] p-4 rounded-r"><div class="text-xs text-white font-bold mb-2 uppercase tracking-wider opacity-70">$1 wrote:</div><div class="text-gray-400 italic pl-1">$2</div></div>');
-
-    // --- Quotes (Generic) ---
-    parsed = parsed.replace(/\[quote\]([\s\S]*?)\[\/quote\]/gi, '<blockquote class="border-l-2 border-gray-600 pl-4 py-2 my-4 text-gray-500 italic bg-[#111] p-2 rounded-r">$1</blockquote>');
-
-    // --- Code Blocks ---
-    parsed = parsed.replace(/\[code\]([\s\S]*?)\[\/code\]/gi, '<pre class="bg-[#050505] p-4 rounded border border-[#333] overflow-x-auto my-3 text-sm font-mono text-gray-300"><code>$1</code></pre>');
-
-    // --- YouTube ---
-    parsed = parsed.replace(/\[youtube\](.*?)\[\/youtube\]/gi, '<div class="relative w-full aspect-video rounded overflow-hidden shadow-2xl my-4 border border-[#333]"><iframe class="absolute top-0 left-0 w-full h-full" src="https://www.youtube.com/embed/$1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>');
+  // Close any remaining tags in stack
+  while (stack.length > 0) {
+    const popped = stack.pop();
+    if (popped && tags[popped.tag]) {
+       const closeDef = tags[popped.tag].close;
+       output.push(typeof closeDef === 'function' ? closeDef(popped.attr) : closeDef);
+    }
   }
 
-  // 3. Convert line breaks (do this last to avoid interfering with regex dots/newlines)
-  parsed = parsed.replace(/\n/g, '<br />');
+  let finalHtml = output.join('');
 
-  return parsed;
+  // --- C. Restore Placeholders ---
+  Object.keys(placeholders).forEach(key => {
+    finalHtml = finalHtml.replace(key, placeholders[key]);
+  });
+
+  return finalHtml;
 };
 
-// Editor helpers - Keeping these simpler as `execCommand` handles most nesting naturally
+// --- 3. Editor Helpers (Simpler Regex Approach for WYSIWYG sync) ---
+
 export const bbcodeToEditorHtml = (content: string) => {
   if (!content) return '';
-  let parsed = content
+  return content
     .replace(/\n/g, '<br>')
     .replace(/\[b\]([\s\S]*?)\[\/b\]/gi, '<b>$1</b>')
     .replace(/\[i\]([\s\S]*?)\[\/i\]/gi, '<i>$1</i>')
@@ -104,18 +195,20 @@ export const bbcodeToEditorHtml = (content: string) => {
     .replace(/\[url=['"]?(.*?)['"]?\]([\s\S]*?)\[\/url\]/gi, '<a href="$1">$2</a>')
     .replace(/\[quote\]([\s\S]*?)\[\/quote\]/gi, '<blockquote>$1</blockquote>')
     .replace(/\[code\]([\s\S]*?)\[\/code\]/gi, '<pre>$1</pre>');
-  return parsed;
 };
 
 export const htmlToBBCode = (html: string) => {
   const temp = document.createElement('div');
   temp.innerHTML = html;
+  
   const traverse = (node: Node): string => {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
     if (node.nodeType !== Node.ELEMENT_NODE) return '';
     const el = node as HTMLElement;
+    
     let content = '';
     el.childNodes.forEach(child => { content += traverse(child); });
+    
     const tagName = el.tagName.toLowerCase();
     const style = el.getAttribute('style') || '';
     
@@ -129,34 +222,31 @@ export const htmlToBBCode = (html: string) => {
     };
 
     switch (tagName) {
-      case 'b': case 'strong': if (el.style.fontWeight === 'normal') return content; return `[b]${content}[/b]`;
+      case 'b': case 'strong': return (el.style.fontWeight === 'normal') ? content : `[b]${content}[/b]`;
       case 'i': case 'em': return `[i]${content}[/i]`;
       case 'u': return `[u]${content}[/u]`;
       case 's': case 'strike': case 'del': return `[s]${content}[/s]`;
       case 'br': return '\n';
       case 'div': case 'p': 
-        const align = el.style.textAlign || el.getAttribute('align');
-        if (align === 'center') return `\n[center]${content}[/center]\n`;
-        if (align === 'right') return `\n[right]${content}[/right]\n`;
-        if (align === 'justify') return `\n[justify]${content}[/justify]\n`;
-        if (align === 'left') return `\n[left]${content}[/left]\n`;
-        if (style.includes('text-align: center')) return `\n[center]${content}[/center]\n`;
+        if (style.includes('text-align: center') || (el as any).align === 'center') return `\n[center]${content}[/center]\n`;
+        if (style.includes('text-align: right') || (el as any).align === 'right') return `\n[right]${content}[/right]\n`;
+        if (style.includes('text-align: justify') || (el as any).align === 'justify') return `\n[justify]${content}[/justify]\n`;
         return `\n${content}\n`;
       case 'img': return `[img]${el.getAttribute('src') || ''}[/img]`;
       case 'a': return `[url=${el.getAttribute('href')}]${content}[/url]`;
       case 'blockquote': return `[quote]${content}[/quote]`;
       case 'pre': return `[code]${content}[/code]`;
       case 'span': case 'font': 
-        if (el.style.color || el.getAttribute('color')) { 
-            const rawColor = el.style.color || el.getAttribute('color') || '';
-            const color = rgb2hex(rawColor);
-            return `[color=${color}]${content}[/color]`; 
+        const rawColor = el.style.color || el.getAttribute('color');
+        if (rawColor) { 
+            return `[color=${rgb2hex(rawColor)}]${content}[/color]`; 
         } 
         return content;
       default: return content;
     }
   };
+  
   let bbcode = traverse(temp);
-  bbcode = bbcode.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
-  return bbcode;
+  return bbcode.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
 };
+
