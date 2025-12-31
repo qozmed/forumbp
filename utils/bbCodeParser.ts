@@ -237,7 +237,6 @@ export const htmlToBBCode = (html: string) => {
     el.childNodes.forEach(child => { content += traverse(child); });
     
     const tagName = el.tagName.toLowerCase();
-    const style = el.getAttribute('style') || '';
     const computedStyle = el.style;
     
     // Helper to get hex from rgb
@@ -264,14 +263,26 @@ export const htmlToBBCode = (html: string) => {
         // ALIGNMENT HANDLING (Style based)
         let align = el.getAttribute('align') || computedStyle.textAlign;
         
+        // Enhance detection with classes (e.g. text-center) and logical properties
+        if (!align && el.className) {
+           if (el.className.includes('text-center')) align = 'center';
+           else if (el.className.includes('text-right')) align = 'right';
+           else if (el.className.includes('text-justify')) align = 'justify';
+           else if (el.className.includes('text-left')) align = 'left';
+        }
+
+        if (align === 'start') align = 'left';
+        if (align === 'end') align = 'right';
+        
         let wrappedContent = content;
         if (align === 'center') wrappedContent = `[center]${content}[/center]`;
         else if (align === 'right') wrappedContent = `[right]${content}[/right]`;
         else if (align === 'justify') wrappedContent = `[justify]${content}[/justify]`;
         else if (align === 'left') wrappedContent = `[left]${content}[/left]`;
         
-        // Block elements typically end with a newline in BBCode to separate from next block
-        return `${wrappedContent}\n`;
+        // Block elements typically end with a newline in BBCode to separate from next block.
+        // Prevent stacking newlines: if content already ends with \n (e.g. from nested div or br), don't add another.
+        return wrappedContent.endsWith('\n') ? wrappedContent : `${wrappedContent}\n`;
 
       // Media
       case 'img': return `[img]${el.getAttribute('src') || ''}[/img]`;
@@ -300,4 +311,3 @@ export const htmlToBBCode = (html: string) => {
   // Cleanup excessive newlines (max 2) and trim ends
   return bbcode.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
 };
-
