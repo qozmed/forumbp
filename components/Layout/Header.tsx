@@ -8,7 +8,7 @@ import AuthModal from '../Auth/AuthModal';
 // ==========================================
 // НАСТРОЙКА ЛОГОТИПА / LOGO CONFIGURATION
 // ==========================================
-const LOGO_IMAGE_URL = 'https://i.ibb.co/VWmCjBm2/logofullb.png'; 
+const LOGO_IMAGE_URL = 'https://i.ibb.co/1t5BJ7QD/logofullb.png'; 
 // ==========================================
 
 const Header: React.FC = () => {
