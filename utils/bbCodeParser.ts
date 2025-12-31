@@ -37,6 +37,10 @@ const sanitizeColor = (color: string) => {
     return null; 
 };
 
+// Tags that render as block elements in HTML. 
+// A newline immediately following these closing tags should often be consumed to prevent double spacing.
+const BLOCK_TAGS = ['center', 'left', 'right', 'justify', 'quote', 'code', 'youtube'];
+
 // --- 2. Main Parser ---
 
 export const parseBBCodeToHtml = (content: string) => {
@@ -106,6 +110,7 @@ export const parseBBCodeToHtml = (content: string) => {
   
   const stack: { tag: string, attr: string }[] = []; 
   let output: string[] = [];
+  let lastWasBlockClose = false;
 
   tokens.forEach(token => {
     // Check if it looks like a tag
@@ -117,43 +122,56 @@ export const parseBBCodeToHtml = (content: string) => {
       const attr = match[3] ? match[3].replace(/^['"]|['"]$/g, '') : ''; // Remove surrounding quotes
 
       if (tags[tagName]) {
+        lastWasBlockClose = false; // Reset by default
+        
         if (!isClose) {
           // OPEN TAG
           output.push(tags[tagName].open(attr));
           stack.push({ tag: tagName, attr });
         } else {
           // CLOSE TAG
-          // Check if this tag is actually open in the stack
-          // We assume we want to close the most recent instance of this tag.
-          // Standard HTML parsing behavior: close all intermediate tags to close this one.
-          
           const stackTags = stack.map(s => s.tag);
           const index = stackTags.lastIndexOf(tagName);
 
           if (index !== -1) {
-            // Unwind stack until we find the matching tag
-            // We pop from the end until we reach the index
+            // Unwind stack
             while (stack.length > index) {
                 const popped = stack.pop();
                 if (popped) {
                     const closeDef = tags[popped.tag].close;
                     output.push(typeof closeDef === 'function' ? closeDef(popped.attr) : closeDef);
+                    
+                    // If we just closed a block tag, set flag to consume next newline
+                    if (BLOCK_TAGS.includes(popped.tag)) {
+                        lastWasBlockClose = true;
+                    }
                 }
             }
           } else {
-             // Orphan close tag, treat as text
              output.push(escapeHtml(token));
           }
         }
       } else {
-        // Unknown tag, treat as text
+        // Unknown tag
         output.push(escapeHtml(token));
+        lastWasBlockClose = false;
       }
     } else {
       // It's text content
-      // Handle newlines
-      const text = escapeHtml(token).replace(/\n/g, '<br />');
-      output.push(text);
+      let text = token;
+      
+      // If previous token was a closing block tag, consume ONE leading newline
+      if (lastWasBlockClose && text.startsWith('\n')) {
+          text = text.substring(1);
+      }
+      
+      if (text.length > 0) {
+        // Handle newlines -> <br>
+        const safeText = escapeHtml(text).replace(/\n/g, '<br />');
+        output.push(safeText);
+      }
+      
+      lastWasBlockClose = false;
     }
   });
 
@@ -228,10 +246,18 @@ export const htmlToBBCode = (html: string) => {
       case 's': case 'strike': case 'del': return `[s]${content}[/s]`;
       case 'br': return '\n';
       case 'div': case 'p': 
-        if (style.includes('text-align: center') || (el as any).align === 'center') return `\n[center]${content}[/center]\n`;
-        if (style.includes('text-align: right') || (el as any).align === 'right') return `\n[right]${content}[/right]\n`;
-        if (style.includes('text-align: justify') || (el as any).align === 'justify') return `\n[justify]${content}[/justify]\n`;
-        return `\n${content}\n`;
+        // ALIGNMENT HANDLING
+        // We do NOT wrap these in extra newlines at the start, only at the end.
+        // This prevents excessive whitespace accumulation when nesting or stacking.
+        if (style.includes('text-align: center') || (el as any).align === 'center') return `[center]${content}[/center]\n`;
+        if (style.includes('text-align: right') || (el as any).align === 'right') return `[right]${content}[/right]\n`;
+        if (style.includes('text-align: justify') || (el as any).align === 'justify') return `[justify]${content}[/justify]\n`;
+        if (style.includes('text-align: left') || (el as any).align === 'left') return `[left]${content}[/left]\n`;
+
+        // Standard Paragraph/Div
+        // Append newline to separate from next block
+        return `${content}\n`;
+
       case 'img': return `[img]${el.getAttribute('src') || ''}[/img]`;
       case 'a': return `[url=${el.getAttribute('href')}]${content}[/url]`;
       case 'blockquote': return `[quote]${content}[/quote]`;
@@ -247,6 +273,7 @@ export const htmlToBBCode = (html: string) => {
   };
   
   let bbcode = traverse(temp);
+  // Clean up: reduce 3+ newlines to 2 (one empty line max) and trim ends
   return bbcode.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
 };
 
