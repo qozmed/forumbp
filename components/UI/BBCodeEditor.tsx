@@ -13,27 +13,42 @@ interface Props {
 const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
-  const isInitialMount = useRef(true);
+  const lastEmittedValue = useRef<string>(value);
   const { t } = useLanguage();
 
+  // Initialize content ONLY on mount or when value changes EXTERNALLY (not from typing)
   useEffect(() => {
-    if (isInitialMount.current) {
-      const initialHtml = bbcodeToEditorHtml(value);
-      if (editorRef.current) {
-        editorRef.current.innerHTML = initialHtml;
-      }
-      isInitialMount.current = false;
-    } else if (value === '') {
-      if (editorRef.current && editorRef.current.innerText.trim() !== '') {
-         editorRef.current.innerHTML = '';
+    // If the new value is exactly what we just emitted, DO NOT touch the DOM.
+    // This prevents cursor jumping and formatting stripping loop.
+    if (value === lastEmittedValue.current) {
+      return;
+    }
+
+    // Special case: If value is empty (reset form), clear the editor
+    if (!value) {
+      if (editorRef.current) editorRef.current.innerHTML = '';
+      lastEmittedValue.current = '';
+      return;
+    }
+
+    // Otherwise, this is an external update (e.g. loading a post to edit)
+    const initialHtml = bbcodeToEditorHtml(value);
+    if (editorRef.current) {
+      // Check if semantic content is actually different to avoid unnecessary resets
+      if (editorRef.current.innerHTML !== initialHtml) {
+         editorRef.current.innerHTML = initialHtml;
       }
     }
+    lastEmittedValue.current = value;
   }, [value]);
 
   const handleInput = () => {
     if (editorRef.current) {
       const html = editorRef.current.innerHTML;
       const bbcode = htmlToBBCode(html);
+      
+      // Update ref BEFORE calling onChange to prevent the useEffect loop
+      lastEmittedValue.current = bbcode;
       onChange(bbcode);
     }
   };

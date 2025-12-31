@@ -220,19 +220,29 @@ export const htmlToBBCode = (html: string) => {
   temp.innerHTML = html;
   
   const traverse = (node: Node): string => {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
-    if (node.nodeType !== Node.ELEMENT_NODE) return '';
-    const el = node as HTMLElement;
+    // 1. Handle Text Nodes
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent || '';
+    }
     
+    // 2. Ignore non-elements (comments, etc)
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return '';
+    }
+
+    const el = node as HTMLElement;
     let content = '';
+    
+    // Process children first
     el.childNodes.forEach(child => { content += traverse(child); });
     
     const tagName = el.tagName.toLowerCase();
     const style = el.getAttribute('style') || '';
+    const computedStyle = el.style;
     
     // Helper to get hex from rgb
     const rgb2hex = (rgb: string) => {
-        if (rgb.search("rgb") == -1) return rgb;
+        if (!rgb || rgb.search("rgb") === -1) return rgb;
         const match = rgb.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+))?\)$/);
         if (!match) return rgb;
         const hex = (x: string) => ("0" + parseInt(x).toString(16)).slice(-2);
@@ -240,40 +250,54 @@ export const htmlToBBCode = (html: string) => {
     };
 
     switch (tagName) {
-      case 'b': case 'strong': return (el.style.fontWeight === 'normal') ? content : `[b]${content}[/b]`;
+      // Formatting
+      case 'b': case 'strong': 
+        if (computedStyle.fontWeight === 'normal') return content;
+        return `[b]${content}[/b]`;
       case 'i': case 'em': return `[i]${content}[/i]`;
       case 'u': return `[u]${content}[/u]`;
       case 's': case 'strike': case 'del': return `[s]${content}[/s]`;
+      
+      // Structure
       case 'br': return '\n';
       case 'div': case 'p': 
-        // ALIGNMENT HANDLING
-        // We do NOT wrap these in extra newlines at the start, only at the end.
-        // This prevents excessive whitespace accumulation when nesting or stacking.
-        if (style.includes('text-align: center') || (el as any).align === 'center') return `[center]${content}[/center]\n`;
-        if (style.includes('text-align: right') || (el as any).align === 'right') return `[right]${content}[/right]\n`;
-        if (style.includes('text-align: justify') || (el as any).align === 'justify') return `[justify]${content}[/justify]\n`;
-        if (style.includes('text-align: left') || (el as any).align === 'left') return `[left]${content}[/left]\n`;
+        // ALIGNMENT HANDLING (Style based)
+        let align = el.getAttribute('align') || computedStyle.textAlign;
+        
+        let wrappedContent = content;
+        if (align === 'center') wrappedContent = `[center]${content}[/center]`;
+        else if (align === 'right') wrappedContent = `[right]${content}[/right]`;
+        else if (align === 'justify') wrappedContent = `[justify]${content}[/justify]`;
+        else if (align === 'left') wrappedContent = `[left]${content}[/left]`;
+        
+        // Block elements typically end with a newline in BBCode to separate from next block
+        return `${wrappedContent}\n`;
 
-        // Standard Paragraph/Div
-        // Append newline to separate from next block
-        return `${content}\n`;
-
+      // Media
       case 'img': return `[img]${el.getAttribute('src') || ''}[/img]`;
       case 'a': return `[url=${el.getAttribute('href')}]${content}[/url]`;
       case 'blockquote': return `[quote]${content}[/quote]`;
       case 'pre': return `[code]${content}[/code]`;
+      
+      // Styles
       case 'span': case 'font': 
-        const rawColor = el.style.color || el.getAttribute('color');
+        const rawColor = computedStyle.color || el.getAttribute('color');
         if (rawColor) { 
-            return `[color=${rgb2hex(rawColor)}]${content}[/color]`; 
+            const hex = rgb2hex(rawColor);
+            // Avoid black (default) if not explicitly set to something else
+            if (hex && hex !== '#000000' && hex !== 'rgb(0, 0, 0)') {
+               return `[color=${hex}]${content}[/color]`; 
+            }
         } 
         return content;
+        
       default: return content;
     }
   };
   
   let bbcode = traverse(temp);
-  // Clean up: reduce 3+ newlines to 2 (one empty line max) and trim ends
+  
+  // Cleanup excessive newlines (max 2) and trim ends
   return bbcode.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
 };
 
