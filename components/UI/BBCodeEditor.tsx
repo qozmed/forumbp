@@ -14,54 +14,63 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
   const editorRef = useRef<HTMLDivElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
   
-  // FIX: Initialize with null so the first useEffect ALWAYS runs to populate the editor.
-  // Using 'value' here previously caused the effect to skip the initial render.
+  // Tracks the last BBCode we sent to the parent to prevent loops
   const lastEmittedValue = useRef<string | null>(null);
+  const isTyping = useRef(false);
   
   const { t } = useLanguage();
 
-  // Initialize content ONLY on mount or when value changes EXTERNALLY (not from typing)
+  // --- Synchronization Logic ---
+
   useEffect(() => {
-    // If the new value is exactly what we just emitted, DO NOT touch the DOM.
-    // We check !== null to ensure we DO run this on the very first mount.
-    if (lastEmittedValue.current !== null && value === lastEmittedValue.current) {
-      return;
+    if (!editorRef.current) return;
+
+    // 1. Convert incoming BBCode to HTML
+    const htmlFromProps = bbcodeToEditorHtml(value || '');
+
+    // 2. Initial Population: If editor is empty but we have content, fill it.
+    if (editorRef.current.innerHTML === '' && htmlFromProps !== '') {
+        editorRef.current.innerHTML = htmlFromProps;
+        lastEmittedValue.current = value;
+        return;
     }
 
-    // Special case: If value is empty (reset form), clear the editor
-    if (!value) {
-      if (editorRef.current && editorRef.current.innerHTML !== '') {
-         editorRef.current.innerHTML = '';
-      }
-      lastEmittedValue.current = '';
-      return;
+    // 3. Update if external value changed AND we are not currently typing
+    // This prevents the cursor from jumping back to start while user types
+    if (!isTyping.current && value !== lastEmittedValue.current) {
+         // Only update if semantically different to avoid minor cursor jumps
+         if (htmlToBBCode(editorRef.current.innerHTML) !== value) {
+            editorRef.current.innerHTML = htmlFromProps;
+         }
+         lastEmittedValue.current = value;
     }
-
-    // Otherwise, this is an external update (e.g. loading a post to edit)
-    const initialHtml = bbcodeToEditorHtml(value);
-    if (editorRef.current) {
-      // Check if semantic content is actually different to avoid unnecessary resets/cursor jumps
-      if (editorRef.current.innerHTML !== initialHtml) {
-         editorRef.current.innerHTML = initialHtml;
-      }
-    }
-    lastEmittedValue.current = value;
   }, [value]);
 
+  // --- Input Handling ---
+
   const handleInput = () => {
-    if (editorRef.current) {
-      const html = editorRef.current.innerHTML;
-      const bbcode = htmlToBBCode(html);
-      
-      // Update ref BEFORE calling onChange to prevent the useEffect loop
-      lastEmittedValue.current = bbcode;
-      onChange(bbcode);
+    if (!editorRef.current) return;
+    
+    isTyping.current = true;
+
+    const html = editorRef.current.innerHTML;
+    const bbcode = htmlToBBCode(html);
+    
+    if (bbcode !== lastEmittedValue.current) {
+        lastEmittedValue.current = bbcode;
+        onChange(bbcode);
     }
+    
+    // Reset typing flag after a short delay
+    setTimeout(() => { isTyping.current = false; }, 100);
   };
 
-  const execCmd = (command: string, value: string | undefined = undefined) => {
-    document.execCommand(command, false, value);
-    editorRef.current?.focus();
+  // --- Toolbar Commands ---
+
+  const execCmd = (command: string, val: string | undefined = undefined) => {
+    if (!editorRef.current) return;
+    editorRef.current.focus();
+    document.execCommand(command, false, val);
     handleInput();
   };
 
@@ -107,7 +116,6 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
 
   return (
     <div className="border border-[#333] rounded bg-[#0a0a0a] overflow-hidden flex flex-col">
-      {/* Hidden Color Input */}
       <input 
         type="color" 
         ref={colorInputRef} 
@@ -115,7 +123,6 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
         className="hidden" 
       />
 
-      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-1 p-2 bg-[#111] border-b border-[#333] sticky top-0 z-10">
         {tools.map((t, i) => (
           t.type === 'divider' ? (
@@ -137,7 +144,6 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
         ))}
       </div>
       
-      {/* Content Editable Area */}
       <div
         ref={editorRef}
         contentEditable
