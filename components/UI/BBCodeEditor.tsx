@@ -13,20 +13,26 @@ interface Props {
 const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
-  const lastEmittedValue = useRef<string>(value);
+  
+  // FIX: Initialize with null so the first useEffect ALWAYS runs to populate the editor.
+  // Using 'value' here previously caused the effect to skip the initial render.
+  const lastEmittedValue = useRef<string | null>(null);
+  
   const { t } = useLanguage();
 
   // Initialize content ONLY on mount or when value changes EXTERNALLY (not from typing)
   useEffect(() => {
     // If the new value is exactly what we just emitted, DO NOT touch the DOM.
-    // This prevents cursor jumping and formatting stripping loop.
-    if (value === lastEmittedValue.current) {
+    // We check !== null to ensure we DO run this on the very first mount.
+    if (lastEmittedValue.current !== null && value === lastEmittedValue.current) {
       return;
     }
 
     // Special case: If value is empty (reset form), clear the editor
     if (!value) {
-      if (editorRef.current) editorRef.current.innerHTML = '';
+      if (editorRef.current && editorRef.current.innerHTML !== '') {
+         editorRef.current.innerHTML = '';
+      }
       lastEmittedValue.current = '';
       return;
     }
@@ -34,7 +40,7 @@ const BBCodeEditor: React.FC<Props> = ({ value, onChange, className, placeholder
     // Otherwise, this is an external update (e.g. loading a post to edit)
     const initialHtml = bbcodeToEditorHtml(value);
     if (editorRef.current) {
-      // Check if semantic content is actually different to avoid unnecessary resets
+      // Check if semantic content is actually different to avoid unnecessary resets/cursor jumps
       if (editorRef.current.innerHTML !== initialHtml) {
          editorRef.current.innerHTML = initialHtml;
       }
