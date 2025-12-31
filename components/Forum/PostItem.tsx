@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Post } from '../../types';
 import { useForum } from '../../context/ForumContext';
@@ -219,7 +218,7 @@ const PostItem: React.FC<Props> = ({ post }) => {
                       title={post.number === 1 ? 'Delete Thread' : 'Delete Post'}
                     >
                       <Trash2 className="w-3.5 h-3.5" /> 
-                      <span className="hidden md:inline">{post.number === 1 ? t('thread.threads') : t('general.delete')}</span>
+                      <span className="hidden md:inline">{post.number === 1 ? t('thread.delete') : t('general.delete')}</span>
                     </button>
                   )}
                   {canEdit && !isEditing && (

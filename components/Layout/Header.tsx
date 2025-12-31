@@ -8,7 +8,7 @@ import AuthModal from '../Auth/AuthModal';
 // ==========================================
 // НАСТРОЙКА ЛОГОТИПА / LOGO CONFIGURATION
 // ==========================================
-const LOGO_IMAGE_URL = 'https://i.ibb.co/1t5BJ7QD/logofullb.png'; 
+const LOGO_IMAGE_URL = 'https://i.ibb.co/VWmCjBm2/logofullb.png'; 
 // ==========================================
 
 const Header: React.FC = () => {
@@ -206,7 +206,7 @@ const Header: React.FC = () => {
                         </div>
                         <div className="p-1">
                           <Link to={`/user/${currentUser.id}`} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-400 hover:bg-[#222] hover:text-white rounded transition-colors" onClick={() => setShowUserMenu(false)}>
-                            <div className="w-4 h-4 rounded-full bg-gray-600 flex items-center justify-center text-[10px]">U</div> My Profile
+                            <div className="w-4 h-4 rounded-full bg-gray-600 flex items-center justify-center text-[10px]">U</div> {t('nav.profile')}
                           </Link>
                           <Link to="/settings" className="flex items-center gap-2 px-4 py-2 text-sm text-gray-400 hover:bg-[#222] hover:text-white rounded transition-colors" onClick={() => setShowUserMenu(false)}>
                             <Settings className="w-4 h-4" /> {t('settings.title')}

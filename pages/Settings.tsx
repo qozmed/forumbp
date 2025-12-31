@@ -89,14 +89,14 @@ const SettingsPage: React.FC = () => {
 
                <div className="space-y-2">
                  <label className="text-sm font-medium text-gray-400 flex items-center gap-2">
-                   <Tag className="w-4 h-4" /> Custom Title
+                   <Tag className="w-4 h-4" /> {t('settings.customTitle')}
                  </label>
                  <input 
                    type="text" 
                    value={customTitle}
                    onChange={(e) => setCustomTitle(e.target.value)}
                    disabled={!hasPermission(currentUser, 'canChangeCustomTitle')}
-                   placeholder="Custom user title..."
+                   placeholder={t('settings.customTitlePlaceholder')}
                    className="w-full bg-gray-900 border border-gray-700 rounded p-2.5 text-white focus:border-cyan-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                  />
                </div>
