@@ -22,9 +22,10 @@ const ActivityTracker: React.FC = () => {
     const adminMatch = matchPath('/admin', path);
 
     if (adminMatch) {
-       type = 'admin';
-       text = 'В панели управления';
-       link = '/admin';
+       // MASKED ACTIVITY: Show as generic index viewing to hide admin status
+       type = 'viewing_index';
+       text = 'Просматривает главную страницу';
+       link = '/';
     } else if (activityMatch) {
        type = 'viewing_index';
        text = 'Просматривает ленту активности';

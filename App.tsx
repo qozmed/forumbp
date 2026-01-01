@@ -1,6 +1,6 @@
 import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ForumProvider } from './context/ForumContext';
+import { ForumProvider, useForum } from './context/ForumContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Header from './components/Layout/Header';
 import Particles from './components/UI/Particles';
@@ -51,6 +51,19 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
   }
 }
 
+// Protected Route Component for Admin
+const AdminRoute: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const { currentUser, hasPermission, isReady } = useForum();
+  
+  if (!isReady) return null; // Wait for auth check
+
+  if (!currentUser || !hasPermission(currentUser, 'canViewAdminPanel')) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+};
+
 const AppContent: React.FC = () => {
   const { t } = useLanguage();
   return (
@@ -65,7 +78,14 @@ const AppContent: React.FC = () => {
               <Route path="/activity" element={<Activity />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/admin" element={<AdminPanel />} />
+              <Route 
+                path="/admin" 
+                element={
+                  <AdminRoute>
+                    <AdminPanel />
+                  </AdminRoute>
+                } 
+              />
               <Route path="/forum/:id" element={<ForumView />} />
               <Route path="/thread/:id" element={<ThreadView />} />
               <Route path="/user/:id" element={<UserProfile />} />
