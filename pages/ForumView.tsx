@@ -2,20 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Home, ChevronRight, Plus, Lock, Pin, Loader2, AlertTriangle } from 'lucide-react';
+import { Home, ChevronRight, Plus, Lock, Pin, Loader2, AlertTriangle, RefreshCcw } from 'lucide-react';
 import Sidebar from '../components/Layout/Sidebar';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import CreateThreadModal from '../components/Forum/CreateThreadModal';
 import ForumRow from '../components/Forum/ForumRow';
 import Pagination from '../components/UI/Pagination';
 import { timeAgo } from '../utils/date';
+import { Thread } from '../types';
 
 const ForumView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getForum, getSubForums, threads, users, currentUser, hasPermission, loadThreadsForForum } = useForum();
+  const { getForum, getSubForums, users, currentUser, hasPermission, loadThreadsForForum } = useForum();
   const { t, language } = useLanguage();
+  
   const [isCreateOpen, setCreateOpen] = useState(false);
-  const [loadingThreads, setLoadingThreads] = useState(false); // Local loading state
+  const [loading, setLoading] = useState(true);
+  const [localThreads, setLocalThreads] = useState<Thread[]>([]);
+  const [error, setError] = useState('');
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -23,15 +27,27 @@ const ForumView: React.FC = () => {
 
   const forum = id ? getForum(id) : undefined;
 
-  // Lazy Load threads when ID changes
-  useEffect(() => {
+  const fetchData = async () => {
     if (id) {
-        setLoadingThreads(true);
-        loadThreadsForForum(id).finally(() => setLoadingThreads(false));
+        setLoading(true);
+        setError('');
+        try {
+            const threads = await loadThreadsForForum(id);
+            setLocalThreads(threads);
+        } catch (e) {
+            console.error(e);
+            setError('Failed to load threads');
+        } finally {
+            setLoading(false);
+        }
     }
+  };
+
+  // Direct fetch when ID changes
+  useEffect(() => {
+    fetchData();
   }, [id]);
   
-  // Context guarantees Forums are loaded. If forum is undefined here, it truly doesn't exist.
   if (!forum) {
     return (
        <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
@@ -46,8 +62,7 @@ const ForumView: React.FC = () => {
   const subForums = getSubForums(forum.id);
 
   // Filter threads and Pagination logic
-  const forumThreads = threads
-    .filter(t => t.forumId === forum.id)
+  const forumThreads = localThreads
     .sort((a, b) => {
       if (a.isPinned && !b.isPinned) return -1;
       if (!a.isPinned && b.isPinned) return 1;
@@ -127,10 +142,16 @@ const ForumView: React.FC = () => {
                  </div>
               </div>
 
-              {loadingThreads && forumThreads.length === 0 ? (
+              {loading ? (
                  <div className="flex flex-col items-center justify-center p-20 animate-fade-in">
                     <Loader2 className="w-10 h-10 text-cyan-500 animate-spin mb-4" />
                     <span className="text-gray-500 text-sm">Загрузка тем...</span>
+                 </div>
+              ) : error ? (
+                 <div className="flex flex-col items-center justify-center p-12 text-red-400">
+                    <AlertTriangle className="w-8 h-8 mb-2" />
+                    <p>{error}</p>
+                    <button onClick={fetchData} className="mt-4 flex items-center gap-2 bg-[#222] px-3 py-1 rounded text-white hover:bg-[#333]"><RefreshCcw className="w-4 h-4" /> Retry</button>
                  </div>
               ) : forumThreads.length === 0 ? (
                 <div className="p-12 text-center text-gray-600 italic">
@@ -210,7 +231,7 @@ const ForumView: React.FC = () => {
         </div>
       </div>
 
-      <CreateThreadModal forumId={forum.id} isOpen={isCreateOpen} onClose={() => setCreateOpen(false)} />
+      <CreateThreadModal forumId={forum.id} isOpen={isCreateOpen} onClose={() => { setCreateOpen(false); fetchData(); }} />
     </div>
   );
 };

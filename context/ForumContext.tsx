@@ -5,7 +5,6 @@ import { mongo } from '../services/mongo';
 import { APP_CONFIG } from '../config';
 import { ServerCrash, RotateCcw, WifiOff, Loader2 } from 'lucide-react';
 
-// Simple client-side hash for offline mode
 const simpleHash = (str: string) => {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -19,7 +18,7 @@ const simpleHash = (str: string) => {
 interface ForumContextType {
   categories: Category[];
   forums: Forum[];
-  threads: Thread[];
+  threads: Thread[]; // Cached threads
   posts: Post[];
   prefixes: Prefix[];
   roles: Role[];
@@ -74,10 +73,11 @@ interface ForumContextType {
   adminSetDefaultRole: (roleId: string) => Promise<void>; 
   search: (query: string) => { threads: Thread[], posts: Post[] };
   
-  loadThreadsForForum: (forumId: string) => Promise<void>;
-  loadPostsForThread: (threadId: string) => Promise<void>;
-  loadUserPosts: (userId: string) => Promise<void>;
-  loadThread: (threadId: string) => Promise<void>; 
+  // NEW: Direct fetchers for View components
+  loadThreadsForForum: (forumId: string) => Promise<Thread[]>;
+  loadPostsForThread: (threadId: string) => Promise<Post[]>;
+  loadThread: (threadId: string) => Promise<Thread | null>; 
+  loadUserPosts: (userId: string) => Promise<Post[]>;
 }
 
 const ForumContext = createContext<ForumContextType | undefined>(undefined);
@@ -87,11 +87,9 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [isOffline, setIsOffline] = useState(false);
   const [fatalError, setFatalError] = useState<string | null>(null); 
   
-  // App State
-  const [isReady, setIsReady] = useState(false); // Controls the initial loader
-  const [loading, setLoading] = useState(false); // Controls background updates
+  const [isReady, setIsReady] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // Data State
   const [categories, setCategories] = useState<Category[]>([]);
   const [forums, setForums] = useState<Forum[]>([]);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -107,20 +105,17 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const getApi = (offlineOverride: boolean) => (useMongo && !offlineOverride) ? mongo : db;
 
-  // --- INITIALIZATION LOGIC ---
   const loadData = async (initial = false, forceOffline = false) => {
     const effectiveOffline = isOffline || forceOffline;
     
     try {
       if (initial) setLoading(true);
 
-      // 1. Health Check (Only if using Mongo and not already offline)
       if (useMongo && !effectiveOffline) {
         const healthy = await mongo.checkHealth();
         if (!healthy) {
            if (!isOffline && initial) console.warn("⚠️ Server unreachable. Switching to offline mode.");
            setIsOffline(true);
-           // Recursively try again in offline mode
            return loadData(initial, true);
         }
       } else if (!useMongo || effectiveOffline) {
@@ -129,13 +124,15 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
       const api = getApi(effectiveOffline);
 
-      // 2. Fetch ALL Data
-      // Removed the limit=20 optimization to ensure all threads are available for history navigation
+      // Fetch Metadata ONLY. Do NOT fetch all threads here.
+      // We rely on ThreadView/ForumView to fetch their specific content.
+      // We do fetch recent threads for the Activity page/Sidebar.
       // @ts-ignore
-      const [c, f, allThreads, u, px, r] = await Promise.all([
+      const [c, f, recentThreads, u, px, r] = await Promise.all([
         api.getCategories(),
         api.getForums(),
-        api.getThreads(), // Fetch ALL threads
+        // @ts-ignore
+        api.getThreads(undefined, 20),
         api.getUsers(),
         api.getPrefixes(),
         api.getRoles()
@@ -147,29 +144,25 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setPrefixes(px || []);
       setRoles(r || []);
       
-      // Update Threads
+      // Merge Recent Threads into Cache
       setThreads(prev => {
          const map = new Map(prev.map(t => [t.id, t]));
-         if (Array.isArray(allThreads)) {
-             allThreads.forEach((t: Thread) => map.set(t.id, t));
+         if (Array.isArray(recentThreads)) {
+             recentThreads.forEach((t: Thread) => map.set(t.id, t));
          }
          return Array.from(map.values());
       });
 
-      // 5. Restore Session
       const sid = api.getSession();
       if(sid && u && u[sid]) setCurrentUser(u[sid]);
       else { if(sid) api.clearSession(); setCurrentUser(null); }
 
       setFatalError(null);
-      
-      // 6. Release Block
       if (initial) setIsReady(true);
 
     } catch (e: any) {
       console.error("Critical Load Error:", e);
       if (initial && !effectiveOffline) {
-        // Fallback to offline immediately on critical fail during init
         setIsOffline(true);
         initDB();
         return loadData(initial, true);
@@ -180,9 +173,9 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   };
 
-  // --- LAZY LOADERS (API -> State Merge) ---
+  // --- ASYNC DATA LOADERS (The Fix for Black Screen) ---
   
-  const loadThreadsForForum = async (forumId: string) => {
+  const loadThreadsForForum = async (forumId: string): Promise<Thread[]> => {
      try {
          const api = getApi(isOffline);
          // @ts-ignore
@@ -193,11 +186,16 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 newThreads.forEach((t: Thread) => map.set(t.id, t));
                 return Array.from(map.values());
              });
+             return newThreads;
          }
-     } catch (e) { console.error(e); }
+         return [];
+     } catch (e) { 
+         console.error(e);
+         return [];
+     }
   };
 
-  const loadPostsForThread = async (threadId: string) => {
+  const loadPostsForThread = async (threadId: string): Promise<Post[]> => {
      try {
          const api = getApi(isOffline);
          // @ts-ignore
@@ -207,26 +205,16 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 const others = prev.filter(p => p.threadId !== threadId);
                 return [...others, ...newPosts];
              });
+             return newPosts;
          }
-     } catch (e) { console.error(e); }
+         return [];
+     } catch (e) { 
+         console.error(e);
+         return [];
+     }
   };
 
-  const loadUserPosts = async (userId: string) => {
-     try {
-         const api = getApi(isOffline);
-         // @ts-ignore
-         const newPosts = await api.getPosts(undefined, userId);
-         if (Array.isArray(newPosts)) {
-             setPosts(prev => {
-                const map = new Map(prev.map(p => [p.id, p]));
-                newPosts.forEach((p: Post) => map.set(p.id, p));
-                return Array.from(map.values());
-             });
-         }
-     } catch (e) { console.error(e); }
-  }
-
-  const loadThread = async (threadId: string) => {
+  const loadThread = async (threadId: string): Promise<Thread | null> => {
       try {
           const api = getApi(isOffline);
           // @ts-ignore
@@ -237,8 +225,33 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   map.set(thread.id, thread);
                   return Array.from(map.values());
               });
+              return thread;
           }
-      } catch (e) { console.error(e); }
+          return null;
+      } catch (e) { 
+          console.error(e);
+          return null;
+      }
+  };
+
+  const loadUserPosts = async (userId: string): Promise<Post[]> => {
+      try {
+          const api = getApi(isOffline);
+          // @ts-ignore
+          const newPosts = await api.getPosts(undefined, userId);
+          if (Array.isArray(newPosts)) {
+              setPosts(prev => {
+                  const map = new Map(prev.map(p => [p.id, p]));
+                  newPosts.forEach((p: Post) => map.set(p.id, p));
+                  return Array.from(map.values());
+              });
+              return newPosts;
+          }
+          return [];
+      } catch (e) {
+          console.error(e);
+          return [];
+      }
   };
 
   // --- POLLING ---
@@ -246,10 +259,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (pollTimer.current) clearTimeout(pollTimer.current);
     pollTimer.current = setTimeout(async () => {
        if (isMounted.current) {
-         await loadData(false); // Silent update
+         await loadData(false); 
          startPolling();
        }
-    }, isOffline ? 5000 : 10000); 
+    }, isOffline ? 10000 : 30000); 
   };
 
   useEffect(() => {
@@ -260,7 +273,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
     init();
     return () => { isMounted.current = false; clearTimeout(pollTimer.current); };
-  }, [useMongo, isOffline]); // Re-run if mode changes
+  }, [useMongo, isOffline]); 
 
   // --- GETTERS ---
   const getForum = (id: string) => forums.find(f => f.id === id);
@@ -307,7 +320,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
   };
 
-  // --- ACTIONS (Simplified Mutate) ---
+  // --- ACTIONS ---
   const mutate = async (fn: () => Promise<any>) => {
     try {
       await fn();
@@ -394,6 +407,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     await mutationApi.addPost({ id: `p${Date.now()}`, threadId: tid, authorId: currentUser.id, content, createdAt: now, likedBy: [], likes: 0, number: 1 });
     await mutationApi.updateForum({ ...forum, threadCount: (forum.threadCount || 0) + 1, messageCount: (forum.messageCount || 0) + 1, lastPost: { threadId: tid, threadTitle: title, authorId: currentUser.id, createdAt: now, prefixId: pid } });
     updateUser({...currentUser, messages: currentUser.messages + 1, points: currentUser.points + 5});
+    // Immediately fetch for UI update
     loadThreadsForForum(fid);
   });
 
@@ -505,8 +519,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const userRole = currentUser ? (getUserRole(currentUser) || null) : null;
 
-  // --- RENDER BLOCKERS ---
-
   if (fatalError) {
     return (
       <div className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center p-6 text-center">
@@ -518,8 +530,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     );
   }
 
-  // CRITICAL: Block rendering children until base structure is ready.
-  // This prevents pages from accessing undefined 'forums' or 'roles'.
   if (!isReady) {
      return (
         <div className="fixed inset-0 bg-[#000000] flex flex-col items-center justify-center z-[9999]">
@@ -567,5 +577,4 @@ export const useForum = () => {
   if (!context) throw new Error('useForum must be used within a ForumProvider');
   return context;
 };
-
 

@@ -13,6 +13,43 @@ import SearchPage from './pages/Search';
 import AdminPanel from './pages/AdminPanel';
 import UserProfile from './pages/UserProfile';
 import ActivityTracker from './components/Layout/ActivityTracker';
+import { AlertTriangle, Home as HomeIcon } from 'lucide-react';
+
+// Simple Error Boundary Component
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
+           <AlertTriangle className="w-20 h-20 text-red-600 mb-6" />
+           <h1 className="text-3xl font-bold mb-4">Что-то пошло не так</h1>
+           <p className="text-gray-400 mb-8 max-w-md">
+             Произошла ошибка при отрисовке интерфейса. Попробуйте обновить страницу.
+           </p>
+           <button 
+             onClick={() => window.location.href = '/'} 
+             className="flex items-center gap-2 bg-white text-black px-6 py-3 rounded font-bold hover:bg-gray-200"
+           >
+             <HomeIcon className="w-5 h-5" /> На главную
+           </button>
+           <div className="mt-8 p-4 bg-gray-900 rounded text-left text-xs font-mono text-red-400 w-full max-w-2xl overflow-auto">
+              {this.state.error?.toString()}
+           </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const AppContent: React.FC = () => {
   const { t } = useLanguage();
@@ -56,11 +93,13 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <LanguageProvider>
-      <ForumProvider>
-        <AppContent />
-      </ForumProvider>
-    </LanguageProvider>
+    <ErrorBoundary>
+      <LanguageProvider>
+        <ForumProvider>
+          <AppContent />
+        </ForumProvider>
+      </LanguageProvider>
+    </ErrorBoundary>
   );
 };
 

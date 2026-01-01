@@ -2,48 +2,65 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Home, ChevronRight, Lock, Share2, Pin, Check, Pencil, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import { Home, ChevronRight, Lock, Share2, Pin, Check, Pencil, Trash2, Loader2, AlertCircle, RefreshCcw } from 'lucide-react';
 import PostItem from '../components/Forum/PostItem';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import Sidebar from '../components/Layout/Sidebar';
 import BBCodeEditor from '../components/UI/BBCodeEditor';
+import { Thread, Post } from '../types';
 
 const ThreadView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes, loadPostsForThread, loadThread } = useForum();
+  const { getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes, loadPostsForThread, loadThread } = useForum();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  
+  // Local State for Robust Data Fetching
+  const [localThread, setLocalThread] = useState<Thread | null>(null);
+  const [localPosts, setLocalPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
   const [replyContent, setReplyContent] = useState('');
   const [isCopied, setIsCopied] = useState(false);
-  const [isLoadingThread, setIsLoadingThread] = useState(true);
 
   // Edit Header State
   const [isEditingHeader, setIsEditingHeader] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editPrefix, setEditPrefix] = useState('');
 
-  // Try to get thread from context immediately
-  const thread = id ? getThread(id) : undefined;
+  const fetchThreadData = async () => {
+    if (!id) return;
+    setLoading(true);
+    setError('');
+    
+    try {
+        const [fetchedThread, fetchedPosts] = await Promise.all([
+            loadThread(id),
+            loadPostsForThread(id)
+        ]);
 
-  // Load Thread and Posts
-  useEffect(() => {
-    if (id) {
-       setIsLoadingThread(true);
-       
-       const promises = [loadPostsForThread(id)];
-       
-       // Crucial fix: If thread is missing in context, explicitly fetch it.
-       // Even if it exists, re-fetching ensures we have the latest version.
-       if (!thread) {
-           promises.push(loadThread(id));
-       }
-       
-       Promise.all(promises).finally(() => setIsLoadingThread(false));
+        if (fetchedThread) {
+            setLocalThread(fetchedThread);
+            setLocalPosts(fetchedPosts.sort((a, b) => a.number - b.number));
+        } else {
+            setError('Thread not found');
+        }
+    } catch (e) {
+        console.error(e);
+        setError('Failed to load thread');
+    } finally {
+        setLoading(false);
     }
-  }, [id]); 
-  
-  // 1. Loading State
-  if (isLoadingThread && !thread) {
+  };
+
+  // Trigger fetch on ID change (navigation)
+  useEffect(() => {
+    fetchThreadData();
+  }, [id]);
+
+  // Loading State
+  if (loading) {
      return (
         <div className="flex flex-col items-center justify-center py-32 text-white animate-fade-in">
            <Loader2 className="w-12 h-12 animate-spin text-cyan-500 mb-4" />
@@ -52,31 +69,39 @@ const ThreadView: React.FC = () => {
      );
   }
 
-  // 2. Not Found State (Only after loading is definitely finished)
-  if (!thread && !isLoadingThread) {
+  // Error/Not Found State
+  if (error || !localThread) {
     return (
        <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
           <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
-          <h2 className="text-xl font-bold text-white mb-2">Тема не найдена</h2>
+          <h2 className="text-xl font-bold text-white mb-2">{error || 'Тема не найдена'}</h2>
           <p className="text-gray-500 mb-6">Возможно, она была удалена или вы перешли по неверной ссылке.</p>
-          <Link to="/" className="px-6 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded font-bold transition-colors">
-             На главную
-          </Link>
+          <div className="flex gap-4">
+             <Link to="/" className="px-6 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded font-bold transition-colors">
+                На главную
+             </Link>
+             <button onClick={fetchThreadData} className="px-6 py-2 bg-cyan-900/50 hover:bg-cyan-900 text-cyan-400 rounded font-bold transition-colors flex items-center gap-2">
+                <RefreshCcw className="w-4 h-4" /> Повторить
+             </button>
+          </div>
        </div>
     );
   }
 
-  // 3. Fallback for TS safety (should be covered above)
-  if (!thread) return null;
+  const forum = getForum(localThread.forumId);
+  const author = getUser(localThread.authorId);
 
-  const posts = getPostsByThread(thread.id);
-  const forum = getForum(thread.forumId);
-  const author = getUser(thread.authorId);
-
-  const handleReply = () => {
+  const handleReply = async () => {
      if (!replyContent.trim()) return;
-     replyToThread(thread.id, replyContent);
-     setReplyContent('');
+     try {
+        await replyToThread(localThread.id, replyContent);
+        setReplyContent('');
+        // Refresh posts after reply
+        const newPosts = await loadPostsForThread(localThread.id);
+        setLocalPosts(newPosts.sort((a, b) => a.number - b.number));
+     } catch (e) {
+        alert("Ошибка при отправке ответа");
+     }
   };
 
   const handleShare = () => {
@@ -86,7 +111,7 @@ const ThreadView: React.FC = () => {
   };
 
   const canReply = currentUser && hasPermission(currentUser, 'canReply');
-  const isAuthor = currentUser && currentUser.id === thread.authorId;
+  const isAuthor = currentUser && currentUser.id === localThread.authorId;
   
   const canLock = currentUser && (
       hasPermission(currentUser, 'canLockThreads') || 
@@ -103,7 +128,7 @@ const ThreadView: React.FC = () => {
   const handleDeleteThread = async () => {
      if(window.confirm(t('admin.confirmDelete'))) {
         try {
-           await deleteThread(thread.id);
+           await deleteThread(localThread.id);
            if (forum) navigate(`/forum/${forum.id}`);
            else navigate('/');
         } catch(e) {
@@ -119,17 +144,18 @@ const ThreadView: React.FC = () => {
   );
 
   const startHeaderEdit = () => {
-     setEditTitle(thread.title);
-     setEditPrefix(thread.prefixId || '');
+     setEditTitle(localThread.title);
+     setEditPrefix(localThread.prefixId || '');
      setIsEditingHeader(true);
   };
 
   const saveHeaderEdit = async () => {
      if (editTitle.trim()) {
-        await updateThread(thread.id, { 
+        await updateThread(localThread.id, { 
            title: editTitle, 
            prefixId: editPrefix || undefined 
         });
+        setLocalThread({ ...localThread, title: editTitle, prefixId: editPrefix || undefined });
         setIsEditingHeader(false);
      }
   };
@@ -148,7 +174,7 @@ const ThreadView: React.FC = () => {
              <ChevronRight className="w-4 h-4" />
           </>
         )}
-        <span className="text-gray-300">{thread.title}</span>
+        <span className="text-gray-300">{localThread.title}</span>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8">
@@ -180,9 +206,9 @@ const ThreadView: React.FC = () => {
                   </div>
                ) : (
                   <h1 className="text-2xl md:text-4xl font-bold font-display text-white mb-3 flex flex-wrap items-center gap-2 md:gap-3">
-                     {thread.isPinned && <Pin className="w-6 h-6 text-green-400 fill-green-400" />}
-                     <PrefixBadge prefixId={thread.prefixId} />
-                     {thread.title}
+                     {localThread.isPinned && <Pin className="w-6 h-6 text-green-400 fill-green-400" />}
+                     <PrefixBadge prefixId={localThread.prefixId} />
+                     {localThread.title}
                      {canEditHeader && (
                         <button onClick={startHeaderEdit} className="text-gray-600 hover:text-white transition-colors ml-2" title="Edit Thread Title">
                            <Pencil className="w-5 h-5" />
@@ -201,9 +227,9 @@ const ThreadView: React.FC = () => {
                      </Link>
                   </div>
                   <span>&bull;</span>
-                  <span>{new Date(thread.createdAt).toLocaleString()}</span>
+                  <span>{new Date(localThread.createdAt).toLocaleString()}</span>
                   <div className="ml-auto flex items-center gap-2">
-                     {thread.isLocked && (
+                     {localThread.isLocked && (
                         <span className="flex items-center gap-1 text-red-400 bg-red-900/20 px-2 py-0.5 rounded border border-red-900/40 whitespace-nowrap">
                            <Lock className="w-3 h-3" /> <span className="hidden md:inline">{t('thread.locked')}</span>
                         </span>
@@ -223,18 +249,18 @@ const ThreadView: React.FC = () => {
                  <div className="mt-2 flex flex-wrap gap-2">
                     {canLock && (
                       <button 
-                        onClick={() => toggleThreadLock(thread.id)}
+                        onClick={() => { toggleThreadLock(localThread.id); setLocalThread(p => p ? ({...p, isLocked: !p.isLocked}) : null) }}
                         className="text-xs flex items-center gap-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700 transition-colors"
                       >
-                         <Lock className="w-3 h-3" /> {thread.isLocked ? 'Unlock' : 'Lock'}
+                         <Lock className="w-3 h-3" /> {localThread.isLocked ? 'Unlock' : 'Lock'}
                       </button>
                     )}
                     {canPin && (
                       <button 
-                        onClick={() => toggleThreadPin(thread.id)}
+                        onClick={() => { toggleThreadPin(localThread.id); setLocalThread(p => p ? ({...p, isPinned: !p.isPinned}) : null) }}
                         className="text-xs flex items-center gap-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700 transition-colors"
                       >
-                         <Pin className="w-3 h-3" /> {thread.isPinned ? 'Unpin' : 'Pin'}
+                         <Pin className="w-3 h-3" /> {localThread.isPinned ? 'Unpin' : 'Pin'}
                       </button>
                     )}
                     {canDelete && (
@@ -250,7 +276,7 @@ const ThreadView: React.FC = () => {
             </div>
 
             {/* Locked Notice */}
-            {thread.isLocked && (
+            {localThread.isLocked && (
                <div className="mb-6 p-4 bg-red-900/10 border border-red-800 rounded flex items-center gap-3 text-sm text-red-200">
                   <div className="w-8 h-8 rounded bg-red-900/20 flex items-center justify-center text-red-500 shrink-0">
                      <Lock className="w-4 h-4" />
@@ -261,22 +287,17 @@ const ThreadView: React.FC = () => {
 
             {/* Posts */}
             <div className="space-y-4 md:space-y-6">
-               {isLoadingThread ? (
-                  <div className="flex flex-col items-center justify-center p-12">
-                     <Loader2 className="w-10 h-10 text-cyan-500 animate-spin mb-4" />
-                     <span className="text-gray-500 text-sm">Загрузка сообщений...</span>
-                  </div>
-               ) : posts.length === 0 ? (
+               {localPosts.length === 0 ? (
                   <div className="p-12 text-center text-gray-500 italic">Нет сообщений.</div>
                ) : (
-                  posts.map(post => (
+                  localPosts.map(post => (
                      <PostItem key={post.id} post={post} />
                   ))
                )}
             </div>
 
             {/* Quick Reply */}
-            {(!thread.isLocked || canLock) && canReply ? (
+            {(!localThread.isLocked || canLock) && canReply ? (
                <div className="mt-8 glass-panel rounded p-4 md:p-6 bg-[#0d0d0d]">
                   <h3 className="text-lg font-bold font-display text-white mb-4">{t('thread.writeReply')}</h3>
                   <div className="flex gap-4">
@@ -300,7 +321,7 @@ const ThreadView: React.FC = () => {
                   </div>
                </div>
             ) : (
-               !thread.isLocked && (
+               !localThread.isLocked && (
                   <div className="mt-8 p-8 text-center bg-[#111] rounded border border-[#333] text-gray-500">
                      {t('thread.loginToReply')}
                   </div>

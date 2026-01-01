@@ -64,6 +64,11 @@ const getClientIp = (req) => {
 };
 
 const rateLimiter = (req, res, next) => {
+  // Skip rate limiting for simple GET navigation to prevent "broken" feel
+  if (req.method === 'GET') {
+      return next();
+  }
+
   const ip = getClientIp(req);
   const now = Date.now();
 
@@ -141,7 +146,6 @@ app.use((req, res, next) => {
 app.get('/api/health', (req, res) => {
   const dbState = mongoose.connection.readyState;
   if (dbState !== 1) {
-    // Don't fail immediately on render during spin-up
     if (dbState === 2) return res.json({ status: 'connecting', message: 'DB Connecting' });
     return res.status(503).json({ status: 'error', message: 'Database unavailable' });
   }
@@ -335,14 +339,13 @@ app.get('/api/users', handle(async (req, res) => {
 
 // --- THREADS & POSTS FETCH ---
 
-// CRITICAL: Specific ID route MUST trigger before general query route
+// Specific ID route triggers BEFORE general route
 app.get('/api/threads/:id', handle(async (req, res) => {
   const thread = await Thread.findOne({ id: req.params.id });
   if (!thread) return res.status(404).json({ error: 'Thread not found' });
   res.json(thread);
 }));
 
-// General list fetch
 app.get('/api/threads', handle(async (req, res) => {
   const { forumId, limit, sort } = req.query;
   let query = Thread.find();
@@ -351,11 +354,9 @@ app.get('/api/threads', handle(async (req, res) => {
     query = query.where({ forumId });
   }
 
-  // Sort logic
   if (sort === 'recent') {
     query = query.sort({ createdAt: -1 });
   } else {
-    // Default Forum sort: Pinned first, then by Order, then by Date
     query = query.sort({ isPinned: -1, order: 1, createdAt: -1 });
   }
 
@@ -372,11 +373,10 @@ app.get('/api/posts', handle(async (req, res) => {
   let query = Post.find();
 
   if (threadId) {
-    query = query.where({ threadId }).sort({ number: 1 }); // Chronological for threads
+    query = query.where({ threadId }).sort({ number: 1 }); 
   } else if (userId) {
-    query = query.where({ authorId: userId }).sort({ createdAt: -1 }); // Recent for profiles
+    query = query.where({ authorId: userId }).sort({ createdAt: -1 }); 
   } else {
-    // Safety limit if no filter provided
     query = query.limit(100); 
   }
 
@@ -455,7 +455,6 @@ const createCrud = (path, Model) => {
   }));
 };
 
-// Users is now handled manually above for GET, but handled here for mutations
 createCrud('users', User);
 createCrud('categories', Category);
 createCrud('forums', Forum); 
