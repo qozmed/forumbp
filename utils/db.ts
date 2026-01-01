@@ -226,9 +226,33 @@ export const db = {
     }
   },
 
-  async getThreads(): Promise<Thread[]> {
+  // OPTIMIZED GETTERS WITH FILTERING (Offline Mode Compatibility)
+  async getThreads(forumId?: string, limit?: number): Promise<Thread[]> {
     await delay();
-    return getTable(DB_KEYS.THREADS);
+    let threads = getTable<Thread[]>(DB_KEYS.THREADS);
+    
+    if (forumId) {
+        threads = threads.filter(t => t.forumId === forumId);
+    }
+    
+    // Sort logic mimicking server (Pinned -> Order -> Date)
+    threads.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      if ((a.order || 0) !== (b.order || 0)) return (a.order || 0) - (b.order || 0);
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+    if (limit) {
+        return threads.slice(0, limit);
+    }
+    return threads;
+  },
+  
+  async getThread(id: string): Promise<Thread | null> {
+    await delay();
+    const threads = getTable<Thread[]>(DB_KEYS.THREADS);
+    return threads.find(t => t.id === id) || null;
   },
   
   async addThread(thread: Thread): Promise<void> {
@@ -262,9 +286,17 @@ export const db = {
     setTable(DB_KEYS.POSTS, posts);
   },
 
-  async getPosts(): Promise<Post[]> {
+  async getPosts(threadId?: string, userId?: string): Promise<Post[]> {
     await delay();
-    return getTable(DB_KEYS.POSTS);
+    let posts = getTable<Post[]>(DB_KEYS.POSTS);
+    
+    if (threadId) {
+        posts = posts.filter(p => p.threadId === threadId).sort((a, b) => a.number - b.number);
+    } else if (userId) {
+        posts = posts.filter(p => p.authorId === userId).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    
+    return posts;
   },
   
   async addPost(post: Post): Promise<void> {
@@ -301,3 +333,4 @@ export const db = {
     localStorage.removeItem(DB_KEYS.SESSION);
   }
 };
+

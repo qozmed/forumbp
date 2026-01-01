@@ -10,7 +10,7 @@ import BBCodeEditor from '../components/UI/BBCodeEditor';
 
 const ThreadView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes, loadPostsForThread } = useForum();
+  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes, loadPostsForThread, loadThread } = useForum();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [replyContent, setReplyContent] = useState('');
@@ -24,20 +24,29 @@ const ThreadView: React.FC = () => {
 
   const thread = id ? getThread(id) : undefined;
 
-  // Lazy Load Posts
+  // Load Thread and Posts
   useEffect(() => {
     if (id) {
        setLoading(true);
-       loadPostsForThread(id).then(() => setLoading(false));
+       const promises = [loadPostsForThread(id)];
+       // If thread isn't in cache (e.g. deep link or not in recent list), load it
+       if (!thread) {
+           promises.push(loadThread(id));
+       }
+       Promise.all(promises).then(() => setLoading(false));
     }
-  }, [id]);
+  }, [id, thread ? 'exists' : 'missing']); // Dependency hack to trigger if thread becomes available
   
   if (!thread) {
-    // If thread is not in global "recent" list, we might need to fetch it separately or redirect.
-    // For now, assume if it's not found in Context (which loads structure), it doesn't exist or wasn't loaded by ForumView.
-    // But since we use client-side routing, usually we come from ForumView which populates Threads.
-    // Ideally, we should fetch single thread info if missing. For now, show loading if waiting for cache.
-    return <div className="text-center text-white py-20">Thread not found or loading...</div>;
+    if (loading) {
+       return (
+          <div className="flex flex-col items-center justify-center py-20 text-white">
+             <Loader2 className="w-10 h-10 animate-spin text-cyan-500 mb-4" />
+             <p>Загрузка темы...</p>
+          </div>
+       );
+    }
+    return <div className="text-center text-white py-20">Thread not found</div>;
   }
 
   const posts = getPostsByThread(thread.id);

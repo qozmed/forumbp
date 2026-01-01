@@ -15,8 +15,6 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 // RENDER CONFIGURATION
-// Render sets process.env.PORT. We must listen on it.
-// Fallback to 10000 (Render default) or 5001 locally.
 const PORT = process.env.PORT || 10000; 
 const HOST = '0.0.0.0'; 
 
@@ -80,7 +78,7 @@ const rateLimiter = (req, res, next) => {
 
   const windowMs = 1 * 60 * 1000; 
   // Relaxed limit to prevent blocking valid initial app load bursts
-  const maxReq = 2000; 
+  const maxReq = 3000; 
 
   if (!rateLimitMap.has(ip)) {
     rateLimitMap.set(ip, { count: 1, startTime: now });
@@ -143,10 +141,6 @@ app.use((req, res, next) => {
 app.get('/api/health', (req, res) => {
   const dbState = mongoose.connection.readyState;
   if (dbState !== 1) {
-    // Return 200 even if DB is connecting, so Render doesn't kill the app during cold start
-    // Ideally we wait, but for cold starts we need the port open ASAP.
-    // However, for app logic, we return 503 if DB is totally dead.
-    // Let's stick to strict check for app logic but logged.
     return res.status(503).json({ status: 'error', message: 'Database unavailable' });
   }
   res.json({ status: 'ok', serverTime: new Date().toISOString() });
@@ -332,15 +326,20 @@ app.get('/api/forums', handle(async (req, res) => {
 }));
 
 // --- OPTIMIZED USER FETCH (Lightweight) ---
-// Override generic CRUD for users to return lean objects for the global cache
-// This prevents loading all notifications/signatures for every user on app load
 app.get('/api/users', handle(async (req, res) => {
-  // Select only fields needed for UI display (avatar, name, role, stats)
   const users = await User.find().select('id username avatarUrl roleId secondaryRoleId isBanned points reactions messages customTitle joinedAt lastActiveAt currentActivity notifications');
   res.json(users);
 }));
 
 // --- OPTIMIZED THREADS & POSTS FETCH ---
+// Get SINGLE thread
+app.get('/api/threads/:id', handle(async (req, res) => {
+  const thread = await Thread.findOne({ id: req.params.id });
+  if (!thread) return res.status(404).json({ error: 'Thread not found' });
+  res.json(thread);
+}));
+
+// Get LIST of threads
 app.get('/api/threads', handle(async (req, res) => {
   const { forumId, limit, sort } = req.query;
   let query = Thread.find();

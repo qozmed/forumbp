@@ -77,6 +77,7 @@ interface ForumContextType {
   loadThreadsForForum: (forumId: string) => Promise<void>;
   loadPostsForThread: (threadId: string) => Promise<void>;
   loadUserPosts: (userId: string) => Promise<void>;
+  loadThread: (threadId: string) => Promise<void>; // New for deep linking
 }
 
 const ForumContext = createContext<ForumContextType | undefined>(undefined);
@@ -139,10 +140,11 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       // Merge recent threads into cache without overwriting active forum threads if possible
       // For now, simple set is safest, specific views will re-fetch what they need
       setThreads(prev => {
-         // Create a map of existing threads
          const map = new Map(prev.map(t => [t.id, t]));
-         // Update with recent data
-         recentThreads?.forEach((t: Thread) => map.set(t.id, t));
+         // Safe check if recentThreads is array
+         if (Array.isArray(recentThreads)) {
+             recentThreads.forEach((t: Thread) => map.set(t.id, t));
+         }
          return Array.from(map.values());
       });
 
@@ -171,42 +173,76 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // --- LAZY LOADERS ---
   
   const loadThreadsForForum = async (forumId: string) => {
-     const api = getApi(isOffline);
-     // @ts-ignore
-     const newThreads = await api.getThreads(forumId);
-     
-     setThreads(prev => {
-        // Remove old threads for this forum (optional, keeps memory low) or just upsert
-        // Let's upsert to prevent flickering, but maybe clear really old ones?
-        // Simple merge:
-        const map = new Map(prev.map(t => [t.id, t]));
-        newThreads.forEach((t: Thread) => map.set(t.id, t));
-        return Array.from(map.values());
-     });
+     try {
+         const api = getApi(isOffline);
+         // @ts-ignore
+         const newThreads = await api.getThreads(forumId);
+         
+         if (Array.isArray(newThreads)) {
+             setThreads(prev => {
+                const map = new Map(prev.map(t => [t.id, t]));
+                newThreads.forEach((t: Thread) => map.set(t.id, t));
+                return Array.from(map.values());
+             });
+         }
+     } catch (e) {
+         console.error("Failed to load threads for forum:", e);
+     }
   };
 
   const loadPostsForThread = async (threadId: string) => {
-     const api = getApi(isOffline);
-     // @ts-ignore
-     const newPosts = await api.getPosts(threadId);
-     
-     setPosts(prev => {
-        // Filter out posts for this thread to replace them entirely (handles deletes correctly)
-        const others = prev.filter(p => p.threadId !== threadId);
-        return [...others, ...newPosts];
-     });
+     try {
+         const api = getApi(isOffline);
+         // @ts-ignore
+         const newPosts = await api.getPosts(threadId);
+         
+         if (Array.isArray(newPosts)) {
+             setPosts(prev => {
+                const others = prev.filter(p => p.threadId !== threadId);
+                return [...others, ...newPosts];
+             });
+         }
+     } catch (e) {
+         console.error("Failed to load posts for thread:", e);
+     }
   };
 
   const loadUserPosts = async (userId: string) => {
-     const api = getApi(isOffline);
-     // @ts-ignore
-     const newPosts = await api.getPosts(undefined, userId);
-     setPosts(prev => {
-        const map = new Map(prev.map(p => [p.id, p]));
-        newPosts.forEach((p: Post) => map.set(p.id, p));
-        return Array.from(map.values());
-     });
+     try {
+         const api = getApi(isOffline);
+         // @ts-ignore
+         const newPosts = await api.getPosts(undefined, userId);
+         if (Array.isArray(newPosts)) {
+             setPosts(prev => {
+                const map = new Map(prev.map(p => [p.id, p]));
+                newPosts.forEach((p: Post) => map.set(p.id, p));
+                return Array.from(map.values());
+             });
+         }
+     } catch (e) {
+         console.error("Failed to load user posts:", e);
+     }
   }
+
+  // Helper to fetch a single thread if it's missing from the cache (e.g. direct link or refresh)
+  const loadThread = async (threadId: string) => {
+      try {
+          const api = getApi(isOffline);
+          // @ts-ignore
+          // Need to handle both DB and Mongo. DB doesn't have getThread(id) explicitly in previous logic,
+          // but we updated db.ts to have it now.
+          const thread = await api.getThread(threadId);
+          if (thread) {
+              setThreads(prev => {
+                  const map = new Map(prev.map(t => [t.id, t]));
+                  map.set(thread.id, thread);
+                  return Array.from(map.values());
+              });
+          }
+      } catch (e) {
+          console.error("Failed to load specific thread:", e);
+      }
+  };
 
   // Main Loop logic
   const startPolling = () => {
@@ -694,7 +730,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       adminCreateForum, adminUpdateForum, adminMoveForum, adminDeleteForum, adminUpdateUserRole,
       adminMoveThread, adminReorderThread,
       adminCreatePrefix, adminDeletePrefix, adminCreateRole, adminUpdateRole, adminDeleteRole, adminSetDefaultRole, search,
-      loadThreadsForForum, loadPostsForThread, loadUserPosts
+      loadThreadsForForum, loadPostsForThread, loadUserPosts, loadThread
     }}>
       {isOffline && (
          <div className="fixed bottom-4 right-4 z-50 bg-yellow-900/90 backdrop-blur text-white px-4 py-3 rounded-lg shadow-2xl border border-yellow-500 flex items-center gap-3 animate-pulse">

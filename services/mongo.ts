@@ -64,6 +64,10 @@ export const mongo = {
   async getForums(): Promise<Forum[]> { return apiCall('/forums'); },
   
   // Optimized Getters
+  async getThread(id: string): Promise<Thread> {
+    return apiCall(`/threads/${id}`);
+  },
+
   async getThreads(forumId?: string, limit?: number): Promise<Thread[]> { 
     let query = '/threads?';
     if (forumId) query += `forumId=${forumId}&`;
