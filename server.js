@@ -141,6 +141,8 @@ app.use((req, res, next) => {
 app.get('/api/health', (req, res) => {
   const dbState = mongoose.connection.readyState;
   if (dbState !== 1) {
+    // Log but don't fail immediately for cold starts sometimes
+    console.warn('DB Check: Not ready state:', dbState);
     return res.status(503).json({ status: 'error', message: 'Database unavailable' });
   }
   res.json({ status: 'ok', serverTime: new Date().toISOString() });
@@ -332,14 +334,14 @@ app.get('/api/users', handle(async (req, res) => {
 }));
 
 // --- OPTIMIZED THREADS & POSTS FETCH ---
-// Get SINGLE thread
+
+// IMPORTANT: Specific route MUST come before general /api/threads route
 app.get('/api/threads/:id', handle(async (req, res) => {
   const thread = await Thread.findOne({ id: req.params.id });
   if (!thread) return res.status(404).json({ error: 'Thread not found' });
   res.json(thread);
 }));
 
-// Get LIST of threads
 app.get('/api/threads', handle(async (req, res) => {
   const { forumId, limit, sort } = req.query;
   let query = Thread.find();

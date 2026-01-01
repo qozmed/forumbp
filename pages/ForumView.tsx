@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Home, ChevronRight, Plus, Lock, Pin, Loader2 } from 'lucide-react';
+import { Home, ChevronRight, Plus, Lock, Pin, Loader2, AlertTriangle } from 'lucide-react';
 import Sidebar from '../components/Layout/Sidebar';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import CreateThreadModal from '../components/Forum/CreateThreadModal';
@@ -12,7 +12,7 @@ import { timeAgo } from '../utils/date';
 
 const ForumView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getForum, getSubForums, threads, users, currentUser, hasPermission, loadThreadsForForum } = useForum();
+  const { getForum, getSubForums, threads, users, currentUser, hasPermission, loadThreadsForForum, isReady } = useForum();
   const { t, language } = useLanguage();
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -27,32 +27,33 @@ const ForumView: React.FC = () => {
   useEffect(() => {
     if (id) {
         setLoading(true);
-        loadThreadsForForum(id).then(() => setLoading(false));
+        loadThreadsForForum(id).finally(() => setLoading(false));
     }
   }, [id]);
   
   if (!forum) {
-    return <div className="text-center text-white py-20">Forum not found</div>;
+    if (!isReady) return null; // Wait for global structure
+    return (
+       <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+          <AlertTriangle className="w-12 h-12 text-gray-600 mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">Форум не найден</h2>
+          <Link to="/" className="text-cyan-400 hover:text-cyan-300 underline">Вернуться на главную</Link>
+       </div>
+    );
   }
 
   // Get Sub-forums
   const subForums = getSubForums(forum.id);
 
   // Filter threads and Pagination logic
-  // Sorting: 
-  // 1. Pinned
-  // 2. Manual Order (Ascending)
-  // 3. Creation Date (Newest First)
   const forumThreads = threads
     .filter(t => t.forumId === forum.id)
     .sort((a, b) => {
       if (a.isPinned && !b.isPinned) return -1;
       if (!a.isPinned && b.isPinned) return 1;
-      
       if ((a.order || 0) !== (b.order || 0)) {
          return (a.order || 0) - (b.order || 0);
       }
-      
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
@@ -127,8 +128,8 @@ const ForumView: React.FC = () => {
               </div>
 
               {loading ? (
-                 <div className="flex flex-col items-center justify-center p-12">
-                    <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mb-4" />
+                 <div className="flex flex-col items-center justify-center p-20 animate-fade-in">
+                    <Loader2 className="w-10 h-10 text-cyan-500 animate-spin mb-4" />
                     <span className="text-gray-500 text-sm">Загрузка тем...</span>
                  </div>
               ) : forumThreads.length === 0 ? (
@@ -147,7 +148,7 @@ const ForumView: React.FC = () => {
                          <div key={thread.id} className={`p-4 flex items-center gap-5 hover:bg-[#161616] transition-colors ${thread.isPinned ? 'bg-[#1a1a1a]/50 border-l-2 border-l-green-500' : ''}`}>
                             <div className="flex-shrink-0 relative">
                                <img 
-                                 src={author?.avatarUrl} 
+                                 src={author?.avatarUrl || 'https://ui-avatars.com/api/?name=?&background=333&color=fff'} 
                                  className={`w-10 h-10 rounded bg-[#222] ${hasNewActivity ? '' : 'opacity-60'}`} 
                                  alt="" 
                                />
@@ -167,7 +168,7 @@ const ForumView: React.FC = () => {
                                  </Link>
                                </div>
                                <div className="text-xs text-gray-600 mt-1 flex items-center gap-1">
-                                  {t('forum.startedBy')} <span className="text-gray-400 font-medium">{author?.username}</span> &bull; {timeAgo(thread.createdAt, language)}
+                                  {t('forum.startedBy')} <span className="text-gray-400 font-medium">{author?.username || 'Unknown'}</span> &bull; {timeAgo(thread.createdAt, language)}
                                </div>
                             </div>
 

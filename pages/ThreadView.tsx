@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Home, ChevronRight, Lock, Share2, Pin, Check, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { Home, ChevronRight, Lock, Share2, Pin, Check, Pencil, Trash2, Loader2, AlertCircle } from 'lucide-react';
 import PostItem from '../components/Forum/PostItem';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import Sidebar from '../components/Layout/Sidebar';
@@ -10,7 +10,7 @@ import BBCodeEditor from '../components/UI/BBCodeEditor';
 
 const ThreadView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes, loadPostsForThread, loadThread } = useForum();
+  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes, loadPostsForThread, loadThread, isReady } = useForum();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [replyContent, setReplyContent] = useState('');
@@ -29,24 +29,37 @@ const ThreadView: React.FC = () => {
     if (id) {
        setLoading(true);
        const promises = [loadPostsForThread(id)];
-       // If thread isn't in cache (e.g. deep link or not in recent list), load it
+       // Only fetch thread details if not already in cache or if explicitly refreshing
        if (!thread) {
            promises.push(loadThread(id));
        }
-       Promise.all(promises).then(() => setLoading(false));
+       Promise.all(promises).finally(() => setLoading(false));
     }
-  }, [id, thread ? 'exists' : 'missing']); // Dependency hack to trigger if thread becomes available
+  }, [id, thread ? 'exists' : 'missing']); 
   
+  // Show Loading Spinner ONLY if we are actually loading AND don't have data yet
+  if (loading && !thread) {
+     return (
+        <div className="flex flex-col items-center justify-center py-32 text-white animate-fade-in">
+           <Loader2 className="w-12 h-12 animate-spin text-cyan-500 mb-4" />
+           <p className="text-gray-400">Загрузка темы...</p>
+        </div>
+     );
+  }
+
+  // Not found state (only after loading is finished)
   if (!thread) {
-    if (loading) {
-       return (
-          <div className="flex flex-col items-center justify-center py-20 text-white">
-             <Loader2 className="w-10 h-10 animate-spin text-cyan-500 mb-4" />
-             <p>Загрузка темы...</p>
-          </div>
-       );
-    }
-    return <div className="text-center text-white py-20">Thread not found</div>;
+    if (!isReady) return null; // Still initializing global context
+    return (
+       <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+          <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">Тема не найдена</h2>
+          <p className="text-gray-500 mb-6">Возможно, она была удалена или вы перешли по неверной ссылке.</p>
+          <Link to="/" className="px-6 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded font-bold transition-colors">
+             На главную
+          </Link>
+       </div>
+    );
   }
 
   const posts = getPostsByThread(thread.id);
@@ -115,7 +128,7 @@ const ThreadView: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-8 animate-fade-in">
       {/* Breadcrumbs */}
       <div className="flex items-center gap-2 text-sm text-gray-500 mb-6 overflow-x-auto whitespace-nowrap pb-2">
         <Link to="/" className="hover:text-white"><Home className="w-4 h-4" /></Link>
@@ -174,10 +187,10 @@ const ThreadView: React.FC = () => {
                <div className="flex flex-wrap items-center gap-4 text-xs md:text-sm text-gray-500 bg-[#111] p-3 rounded border border-[#333]">
                   <div className="flex items-center gap-2">
                      <Link to={author ? `/user/${author.id}` : '#'}>
-                        <img src={author?.avatarUrl} className="w-5 h-5 rounded bg-[#222]" alt="" />
+                        <img src={author?.avatarUrl || 'https://ui-avatars.com/api/?name=?&background=333&color=fff'} className="w-5 h-5 rounded bg-[#222]" alt="" />
                      </Link>
                      <Link to={author ? `/user/${author.id}` : '#'} className="text-gray-300 font-bold hover:text-white transition-colors">
-                        {author?.username}
+                        {author?.username || 'Unknown'}
                      </Link>
                   </div>
                   <span>&bull;</span>

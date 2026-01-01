@@ -27,6 +27,7 @@ interface ForumContextType {
   currentUser: User | null;
   userRole: Role | null;
   loading: boolean;
+  isReady: boolean; // NEW: Indicates base structure (Categories/Forums) is loaded
   isOfflineMode: boolean; 
   getForum: (id: string) => Forum | undefined;
   getThread: (id: string) => Thread | undefined;
@@ -77,7 +78,7 @@ interface ForumContextType {
   loadThreadsForForum: (forumId: string) => Promise<void>;
   loadPostsForThread: (threadId: string) => Promise<void>;
   loadUserPosts: (userId: string) => Promise<void>;
-  loadThread: (threadId: string) => Promise<void>; // New for deep linking
+  loadThread: (threadId: string) => Promise<void>; 
 }
 
 const ForumContext = createContext<ForumContextType | undefined>(undefined);
@@ -87,6 +88,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [isOffline, setIsOffline] = useState(false);
   const [fatalError, setFatalError] = useState<string | null>(null); 
   const [loading, setLoading] = useState(true);
+  const [isReady, setIsReady] = useState(false); // Critical for ensuring structure exists
 
   // Data State
   const [categories, setCategories] = useState<Category[]>([]);
@@ -137,11 +139,9 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setCategories(c || []);
       setForums(f || []);
       
-      // Merge recent threads into cache without overwriting active forum threads if possible
-      // For now, simple set is safest, specific views will re-fetch what they need
+      // Merge recent threads safely
       setThreads(prev => {
          const map = new Map(prev.map(t => [t.id, t]));
-         // Safe check if recentThreads is array
          if (Array.isArray(recentThreads)) {
              recentThreads.forEach((t: Thread) => map.set(t.id, t));
          }
@@ -156,6 +156,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       if(sid && u && u[sid]) setCurrentUser(u[sid]);
       else { if(sid) api.clearSession(); setCurrentUser(null); }
       setFatalError(null);
+      setIsReady(true); // Structure is loaded!
 
     } catch (e: any) {
       console.error("Critical Load Error:", e);
@@ -182,7 +183,8 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
              setThreads(prev => {
                 const map = new Map(prev.map(t => [t.id, t]));
                 newThreads.forEach((t: Thread) => map.set(t.id, t));
-                return Array.from(map.values());
+                // Force new array reference to trigger re-render
+                return [...Array.from(map.values())];
              });
          }
      } catch (e) {
@@ -229,14 +231,12 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       try {
           const api = getApi(isOffline);
           // @ts-ignore
-          // Need to handle both DB and Mongo. DB doesn't have getThread(id) explicitly in previous logic,
-          // but we updated db.ts to have it now.
           const thread = await api.getThread(threadId);
-          if (thread) {
+          if (thread && thread.id) {
               setThreads(prev => {
                   const map = new Map(prev.map(t => [t.id, t]));
                   map.set(thread.id, thread);
-                  return Array.from(map.values());
+                  return [...Array.from(map.values())];
               });
           }
       } catch (e) {
@@ -715,13 +715,14 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     );
   }
 
-  if (loading) {
+  // Initial App Loader
+  if (loading && !isReady) {
      return <div className="fixed inset-0 bg-black flex items-center justify-center z-[9999]"><Loader2 className="w-10 h-10 text-cyan-500 animate-spin" /></div>;
   }
 
   return (
     <ForumContext.Provider value={{
-      categories, forums, threads, posts, users, currentUser, prefixes, roles, userRole, loading, isOfflineMode: isOffline,
+      categories, forums, threads, posts, users, currentUser, prefixes, roles, userRole, loading, isOfflineMode: isOffline, isReady,
       getForum, getThread, getPostsByThread, getPostsByUser, getForumsByCategory, getSubForums, getUser, getUserRole, getUserRoles, hasPermission,
       login, register, logout,
       createThread, updateThread, deleteThread, replyToThread, editPost, deletePost, toggleLike, toggleThreadLock, toggleThreadPin,
