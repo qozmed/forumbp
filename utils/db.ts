@@ -66,7 +66,8 @@ export const db = {
     await delay();
     const users = getTable<Record<string, User>>(DB_KEYS.USERS);
     const userList = Object.values(users);
-    const user = userList.find(u => u.username.toLowerCase() === username.toLowerCase());
+    // Robust check: ensure u.username exists before lowercasing
+    const user = userList.find(u => (u.username || '').toLowerCase() === (username || '').toLowerCase());
     if (!user) throw new Error('User not found');
     return user;
   },

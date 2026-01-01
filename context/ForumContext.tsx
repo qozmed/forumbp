@@ -303,7 +303,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const hasPermission = (user: User | null, perm: keyof Permissions): boolean => {
-    if (user && APP_CONFIG.ROOT_ADMINS.includes(user.email.toLowerCase())) return true;
+    // Robust check for email existence
+    const userEmail = user?.email || '';
+    if (user && APP_CONFIG.ROOT_ADMINS.includes(userEmail.toLowerCase())) return true;
+    
     if (!user) {
        const guestRole = roles.find(r => r.id === 'role_guest');
        return guestRole ? guestRole.permissions[perm] : false;
@@ -313,10 +316,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const search = (query: string) => {
-    const q = query.toLowerCase();
+    const q = (query || '').toLowerCase();
     return { 
-      threads: threads.filter(t => t.title.toLowerCase().includes(q)), 
-      posts: posts.filter(p => p.content.toLowerCase().includes(q)) 
+      threads: threads.filter(t => (t.title || '').toLowerCase().includes(q)), 
+      posts: posts.filter(p => (p.content || '').toLowerCase().includes(q)) 
     };
   };
 
