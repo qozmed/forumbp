@@ -129,38 +129,29 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
       const api = getApi(effectiveOffline);
 
-      // 2. Fetch Critical Metadata (Parallel)
-      // These are required for the app to render anything meaningful (Forum list, Auth)
+      // 2. Fetch ALL Data
+      // Removed the limit=20 optimization to ensure all threads are available for history navigation
       // @ts-ignore
-      const [c, f, u, px, r] = await Promise.all([
+      const [c, f, allThreads, u, px, r] = await Promise.all([
         api.getCategories(),
         api.getForums(),
+        api.getThreads(), // Fetch ALL threads
         api.getUsers(),
         api.getPrefixes(),
         api.getRoles()
       ]);
 
-      // 3. Fetch Initial Content (Recent Activity)
-      // We limit this to avoid huge payloads. Specific threads are lazy loaded later.
-      // @ts-ignore
-      const recentThreads = await api.getThreads(undefined, 20);
-
-      // 4. Batch Updates (Prevents multiple re-renders)
       setCategories(c || []);
       setForums(f || []);
       setUsers(u || {});
       setPrefixes(px || []);
       setRoles(r || []);
       
-      // Smart Merge Threads: Don't overwrite existing detailed threads with potentially partial recent ones
+      // Update Threads
       setThreads(prev => {
          const map = new Map(prev.map(t => [t.id, t]));
-         if (Array.isArray(recentThreads)) {
-             recentThreads.forEach((t: Thread) => {
-                 // Only add if not exists, or update if newer. 
-                 // Note: Ideally we merge fields, but for now replacement is okay for the list view.
-                 map.set(t.id, t);
-             });
+         if (Array.isArray(allThreads)) {
+             allThreads.forEach((t: Thread) => map.set(t.id, t));
          }
          return Array.from(map.values());
       });

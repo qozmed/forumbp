@@ -22,22 +22,27 @@ const ThreadView: React.FC = () => {
   const [editTitle, setEditTitle] = useState('');
   const [editPrefix, setEditPrefix] = useState('');
 
+  // Try to get thread from context immediately
   const thread = id ? getThread(id) : undefined;
 
   // Load Thread and Posts
   useEffect(() => {
     if (id) {
        setIsLoadingThread(true);
+       
        const promises = [loadPostsForThread(id)];
-       // Only fetch thread details if not already in cache or if explicitly refreshing
+       
+       // Crucial fix: If thread is missing in context, explicitly fetch it.
+       // Even if it exists, re-fetching ensures we have the latest version.
        if (!thread) {
            promises.push(loadThread(id));
        }
+       
        Promise.all(promises).finally(() => setIsLoadingThread(false));
     }
-  }, [id, thread ? 'exists' : 'missing']); 
+  }, [id]); 
   
-  // Show Loading Spinner ONLY if we are actually loading AND don't have data yet
+  // 1. Loading State
   if (isLoadingThread && !thread) {
      return (
         <div className="flex flex-col items-center justify-center py-32 text-white animate-fade-in">
@@ -47,8 +52,8 @@ const ThreadView: React.FC = () => {
      );
   }
 
-  // Not found state (only after loading is finished)
-  if (!thread) {
+  // 2. Not Found State (Only after loading is definitely finished)
+  if (!thread && !isLoadingThread) {
     return (
        <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
           <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
@@ -60,6 +65,9 @@ const ThreadView: React.FC = () => {
        </div>
     );
   }
+
+  // 3. Fallback for TS safety (should be covered above)
+  if (!thread) return null;
 
   const posts = getPostsByThread(thread.id);
   const forum = getForum(thread.forumId);
@@ -253,7 +261,7 @@ const ThreadView: React.FC = () => {
 
             {/* Posts */}
             <div className="space-y-4 md:space-y-6">
-               {isLoadingThread && posts.length === 0 ? (
+               {isLoadingThread ? (
                   <div className="flex flex-col items-center justify-center p-12">
                      <Loader2 className="w-10 h-10 text-cyan-500 animate-spin mb-4" />
                      <span className="text-gray-500 text-sm">Загрузка сообщений...</span>

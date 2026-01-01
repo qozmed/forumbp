@@ -141,7 +141,6 @@ app.use((req, res, next) => {
 app.get('/api/health', (req, res) => {
   const dbState = mongoose.connection.readyState;
   if (dbState !== 1) {
-    console.warn('DB Check: Not ready state:', dbState);
     // Don't fail immediately on render during spin-up
     if (dbState === 2) return res.json({ status: 'connecting', message: 'DB Connecting' });
     return res.status(503).json({ status: 'error', message: 'Database unavailable' });
@@ -334,15 +333,16 @@ app.get('/api/users', handle(async (req, res) => {
   res.json(users);
 }));
 
-// --- OPTIMIZED THREADS & POSTS FETCH ---
+// --- THREADS & POSTS FETCH ---
 
-// IMPORTANT: Specific route MUST come before general /api/threads route
+// CRITICAL: Specific ID route MUST trigger before general query route
 app.get('/api/threads/:id', handle(async (req, res) => {
   const thread = await Thread.findOne({ id: req.params.id });
   if (!thread) return res.status(404).json({ error: 'Thread not found' });
   res.json(thread);
 }));
 
+// General list fetch
 app.get('/api/threads', handle(async (req, res) => {
   const { forumId, limit, sort } = req.query;
   let query = Thread.find();
