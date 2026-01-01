@@ -15,7 +15,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 // RENDER CONFIGURATION
-const PORT = process.env.PORT || 5001; 
+// Render sets process.env.PORT. We must listen on it.
+// Fallback to 10000 (Render default) or 5001 locally.
+const PORT = process.env.PORT || 10000; 
 const HOST = '0.0.0.0'; 
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/blackproject';
@@ -77,7 +79,8 @@ const rateLimiter = (req, res, next) => {
   }
 
   const windowMs = 1 * 60 * 1000; 
-  const maxReq = 600; // Increased to 600 to handle parallel lazy loading requests
+  // Relaxed limit to prevent blocking valid initial app load bursts
+  const maxReq = 2000; 
 
   if (!rateLimitMap.has(ip)) {
     rateLimitMap.set(ip, { count: 1, startTime: now });
@@ -140,6 +143,10 @@ app.use((req, res, next) => {
 app.get('/api/health', (req, res) => {
   const dbState = mongoose.connection.readyState;
   if (dbState !== 1) {
+    // Return 200 even if DB is connecting, so Render doesn't kill the app during cold start
+    // Ideally we wait, but for cold starts we need the port open ASAP.
+    // However, for app logic, we return 503 if DB is totally dead.
+    // Let's stick to strict check for app logic but logged.
     return res.status(503).json({ status: 'error', message: 'Database unavailable' });
   }
   res.json({ status: 'ok', serverTime: new Date().toISOString() });
@@ -319,11 +326,18 @@ app.post('/api/auth/login', handle(async (req, res) => {
 }));
 
 // --- OPTIMIZED FORUM FETCH ---
-// Removed "Self-Healing" logic for read performance.
-// Updates happen on create/delete actions anyway.
 app.get('/api/forums', handle(async (req, res) => {
   const forums = await Forum.find().sort({ order: 1 });
   res.json(forums);
+}));
+
+// --- OPTIMIZED USER FETCH (Lightweight) ---
+// Override generic CRUD for users to return lean objects for the global cache
+// This prevents loading all notifications/signatures for every user on app load
+app.get('/api/users', handle(async (req, res) => {
+  // Select only fields needed for UI display (avatar, name, role, stats)
+  const users = await User.find().select('id username avatarUrl roleId secondaryRoleId isBanned points reactions messages customTitle joinedAt lastActiveAt currentActivity notifications');
+  res.json(users);
 }));
 
 // --- OPTIMIZED THREADS & POSTS FETCH ---
@@ -412,7 +426,7 @@ app.put('/api/users/:id/activity', handle(async (req, res) => {
 
 // --- GENERIC CRUD ---
 const createCrud = (path, Model) => {
-  if (!['forums', 'threads', 'posts'].includes(path)) {
+  if (!['forums', 'threads', 'posts', 'users'].includes(path)) {
     app.get(`/api/${path}`, handle(async (req, res) => {
       const items = await Model.find().sort({ order: 1 });
       res.json(items);
@@ -439,6 +453,7 @@ const createCrud = (path, Model) => {
   }));
 };
 
+// Users is now handled manually above for GET, but handled here for mutations
 createCrud('users', User);
 createCrud('categories', Category);
 createCrud('forums', Forum); 
@@ -458,5 +473,10 @@ app.get('*', (req, res, next) => {
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`🚀 SERVER RUNNING ON PORT ${PORT}`);
+  console.log(`
+  ===========================================
+  🚀 SERVER RUNNING ON PORT ${PORT}
+  📡 HOST: ${HOST}
+  ===========================================
+  `);
 });

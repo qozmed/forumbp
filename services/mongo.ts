@@ -9,9 +9,10 @@ const API_URL = APP_CONFIG.API_URL;
  */
 async function checkHealth(): Promise<boolean> {
   try {
-    // Timeout check after 2 seconds to avoid hanging
+    // Render Free Tier can take up to 60s to wake up. 
+    // Increased timeout to 60s to prevent premature "Offline Mode" trigger.
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 2000);
+    const id = setTimeout(() => controller.abort(), 60000); 
     
     const res = await fetch(`${API_URL}/health`, { signal: controller.signal });
     clearTimeout(id);
