@@ -41,24 +41,19 @@ const verifyPassword = (password, savedHash, savedSalt) => {
 };
 
 // 2. Advanced Rate Limiter & DDoS Protection
-// Map stores: IP -> { count, startTime }
 let rateLimitMap = new Map();
-// Map stores: IP -> Expiry Timestamp
 let blockedIPs = new Map(); 
 
-// GARBAGE COLLECTION for DDoS Maps
-// Prevents memory leaks if millions of IPs attack.
+// GARBAGE COLLECTION
 setInterval(() => {
     const now = Date.now();
-    // Cleanup expired blocks
     blockedIPs.forEach((expiry, ip) => {
         if (now > expiry) blockedIPs.delete(ip);
     });
-    // Cleanup old rate limit entries (older than 2 mins)
     rateLimitMap.forEach((data, ip) => {
         if (now - data.startTime > 2 * 60 * 1000) rateLimitMap.delete(ip);
     });
-}, 60 * 1000); // Run every minute
+}, 60 * 1000); 
 
 const getClientIp = (req) => {
   const forwarded = req.headers['x-forwarded-for'];
@@ -72,21 +67,17 @@ const rateLimiter = (req, res, next) => {
   const ip = getClientIp(req);
   const now = Date.now();
 
-  // 1. Check if IP is hard-blocked (DDoS mitigation)
   if (blockedIPs.has(ip)) {
     const expiry = blockedIPs.get(ip);
     if (now < expiry) {
-      // FORCE DROP CONNECTION
-      // Do not send a response, just destroy the socket to save resources
       return res.destroy(); 
     } else {
-      blockedIPs.delete(ip); // Unban after timeout
+      blockedIPs.delete(ip); 
     }
   }
 
-  // 2. Rate Limiting Logic
-  const windowMs = 1 * 60 * 1000; // 1 minute window
-  const maxReq = 450; // 450 requests per minute
+  const windowMs = 1 * 60 * 1000; 
+  const maxReq = 600; // Increased to 600 to handle parallel lazy loading requests
 
   if (!rateLimitMap.has(ip)) {
     rateLimitMap.set(ip, { count: 1, startTime: now });
@@ -99,7 +90,6 @@ const rateLimiter = (req, res, next) => {
       data.count++;
       if (data.count > maxReq) {
         console.warn(`[DDoS Detect] Blocking IP: ${ip}`);
-        // Block for 10 minutes
         blockedIPs.set(ip, now + 10 * 60 * 1000);
         return res.destroy();
       }
@@ -108,15 +98,9 @@ const rateLimiter = (req, res, next) => {
   next();
 };
 
-// --- MIDDLEWARE ORDER IS CRITICAL ---
-
-// 1. Rate Limit FIRST - Drop bad traffic before parsing JSON or checking CORS
 app.use(rateLimiter);
-
-// 2. Trust Proxy (for IP detection behind load balancers like Render)
 app.set('trust proxy', true); 
 
-// 3. CORS
 app.use(cors({
   origin: '*', 
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -124,10 +108,8 @@ app.use(cors({
   credentials: true
 }));
 
-// 4. JSON Parsing (with size limit)
 app.use(express.json({ limit: '10mb' })); 
 
-// 5. Input Sanitization
 const sanitizeInput = (req, res, next) => {
   const sanitize = (obj) => {
     for (const key in obj) {
@@ -147,7 +129,6 @@ const sanitizeInput = (req, res, next) => {
 };
 app.use(sanitizeInput);
 
-// Security Headers
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -171,7 +152,7 @@ const connectDB = async () => {
       serverSelectionTimeoutMS: 5000,
       family: 4,
       dbName: 'blackproject',
-      autoIndex: true // Ensure indices are built
+      autoIndex: true 
     });
     console.log('✅ [DB] Connected successfully');
   } catch (err) {
@@ -179,13 +160,6 @@ const connectDB = async () => {
   }
 };
 connectDB();
-
-mongoose.connection.on('disconnected', () => {
-    console.warn('⚠️ [DB] MongoDB disconnected!');
-});
-mongoose.connection.on('reconnected', () => {
-    console.log('✅ [DB] MongoDB reconnected.');
-});
 
 // --- SCHEMAS ---
 const BaseOpts = { versionKey: false };
@@ -330,7 +304,7 @@ app.post('/api/auth/login', handle(async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  // Update IP History if this IP is new
+  // Update IP History
   if (!user.ipHistory.includes(ip)) {
     user.ipHistory.push(ip);
     if (user.ipHistory.length > 10) user.ipHistory.shift();
@@ -344,58 +318,54 @@ app.post('/api/auth/login', handle(async (req, res) => {
   res.json(u);
 }));
 
-// --- SMART FORUM FETCH ---
+// --- OPTIMIZED FORUM FETCH ---
+// Removed "Self-Healing" logic for read performance.
+// Updates happen on create/delete actions anyway.
 app.get('/api/forums', handle(async (req, res) => {
   const forums = await Forum.find().sort({ order: 1 });
-  const syncedForums = await Promise.all(forums.map(async (f) => {
-    const realThreadCount = await Thread.countDocuments({ forumId: f.id });
-    
-    const threadsInForum = await Thread.find({ forumId: f.id }).select('id');
-    const threadIds = threadsInForum.map(t => t.id);
-    const realMessageCount = await Post.countDocuments({ threadId: { $in: threadIds } });
+  res.json(forums);
+}));
 
-    const latestThread = await Thread.findOne({ forumId: f.id }).sort({ 'lastPost.createdAt': -1 });
-    
-    let needsUpdate = false;
-    let updates = {};
+// --- OPTIMIZED THREADS & POSTS FETCH ---
+app.get('/api/threads', handle(async (req, res) => {
+  const { forumId, limit, sort } = req.query;
+  let query = Thread.find();
 
-    if (f.threadCount !== realThreadCount) {
-       updates.threadCount = realThreadCount;
-       needsUpdate = true;
-    }
-    if (f.messageCount !== realMessageCount) {
-       updates.messageCount = realMessageCount;
-       needsUpdate = true;
-    }
+  if (forumId) {
+    query = query.where({ forumId });
+  }
 
-    if (!latestThread) {
-       if (f.lastPost) {
-          updates.lastPost = null;
-          needsUpdate = true;
-       }
-    } else {
-       const actualLastPostTime = latestThread.lastPost ? latestThread.lastPost.createdAt : latestThread.createdAt;
-       const storedLastPostTime = f.lastPost ? f.lastPost.createdAt : null;
+  // Sort logic
+  if (sort === 'recent') {
+    query = query.sort({ createdAt: -1 });
+  } else {
+    // Default Forum sort: Pinned first, then by Order, then by Date
+    query = query.sort({ isPinned: -1, order: 1, createdAt: -1 });
+  }
 
-       if (!f.lastPost || f.lastPost.threadId !== latestThread.id || storedLastPostTime !== actualLastPostTime) {
-          updates.lastPost = {
-             threadId: latestThread.id,
-             threadTitle: latestThread.title,
-             authorId: latestThread.lastPost ? latestThread.lastPost.authorId : latestThread.authorId,
-             createdAt: actualLastPostTime,
-             prefixId: latestThread.prefixId
-          };
-          needsUpdate = true;
-       }
-    }
+  if (limit) {
+    query = query.limit(parseInt(limit));
+  }
 
-    if (needsUpdate) {
-       const updated = await Forum.findOneAndUpdate({ id: f.id }, updates, { new: true });
-       return updated;
-    }
-    return f;
-  }));
-  res.json(syncedForums);
+  const items = await query.exec();
+  res.json(items);
+}));
+
+app.get('/api/posts', handle(async (req, res) => {
+  const { threadId, userId } = req.query;
+  let query = Post.find();
+
+  if (threadId) {
+    query = query.where({ threadId }).sort({ number: 1 }); // Chronological for threads
+  } else if (userId) {
+    query = query.where({ authorId: userId }).sort({ createdAt: -1 }); // Recent for profiles
+  } else {
+    // Safety limit if no filter provided
+    query = query.limit(100); 
+  }
+
+  const items = await query.exec();
+  res.json(items);
 }));
 
 // --- SPECIFIC HANDLERS ---
@@ -442,7 +412,7 @@ app.put('/api/users/:id/activity', handle(async (req, res) => {
 
 // --- GENERIC CRUD ---
 const createCrud = (path, Model) => {
-  if (path !== 'forums') {
+  if (!['forums', 'threads', 'posts'].includes(path)) {
     app.get(`/api/${path}`, handle(async (req, res) => {
       const items = await Model.find().sort({ order: 1 });
       res.json(items);

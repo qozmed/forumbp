@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Home, ChevronRight, Plus, Lock, Pin } from 'lucide-react';
+import { Home, ChevronRight, Plus, Lock, Pin, Loader2 } from 'lucide-react';
 import Sidebar from '../components/Layout/Sidebar';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import CreateThreadModal from '../components/Forum/CreateThreadModal';
@@ -12,15 +12,24 @@ import { timeAgo } from '../utils/date';
 
 const ForumView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getForum, getSubForums, threads, users, currentUser, hasPermission } = useForum();
+  const { getForum, getSubForums, threads, users, currentUser, hasPermission, loadThreadsForForum } = useForum();
   const { t, language } = useLanguage();
   const [isCreateOpen, setCreateOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
   const forum = id ? getForum(id) : undefined;
+
+  // Lazy Load threads when ID changes
+  useEffect(() => {
+    if (id) {
+        setLoading(true);
+        loadThreadsForForum(id).then(() => setLoading(false));
+    }
+  }, [id]);
   
   if (!forum) {
     return <div className="text-center text-white py-20">Forum not found</div>;
@@ -32,24 +41,18 @@ const ForumView: React.FC = () => {
   // Filter threads and Pagination logic
   // Sorting: 
   // 1. Pinned
-  // 2. Manual Order (Ascending - 0 is default/first, but usually higher number means lower in list if implementing drag/drop, but here we act as index)
-  //    Actually AdminPanel usually moves Up/Down. Let's assume lower 'order' is higher in list (like array index).
+  // 2. Manual Order (Ascending)
   // 3. Creation Date (Newest First)
   const forumThreads = threads
     .filter(t => t.forumId === forum.id)
     .sort((a, b) => {
-      // 1. Priority to Pinned threads
       if (a.isPinned && !b.isPinned) return -1;
       if (!a.isPinned && b.isPinned) return 1;
       
-      // 2. Manual Order (if set and different)
-      // We only use manual order if it's explicitly set (not 0) or if we want strict ordering
-      // Let's make manual order take precedence if they differ
       if ((a.order || 0) !== (b.order || 0)) {
          return (a.order || 0) - (b.order || 0);
       }
       
-      // 3. Sort by creation date (newest first)
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
@@ -57,7 +60,6 @@ const ForumView: React.FC = () => {
   const currentThreads = forumThreads.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   const canManageForums = hasPermission(currentUser, 'canManageForums');
-  // Users can create threads if they have permission AND forum is not closed (or they are admin)
   const canCreateThread = hasPermission(currentUser, 'canCreateThread') && (!forum.isClosed || canManageForums);
 
   return (
@@ -115,7 +117,7 @@ const ForumView: React.FC = () => {
               </div>
            )}
 
-           <div className="glass-panel rounded overflow-hidden animate-fade-in bg-[#0d0d0d]">
+           <div className="glass-panel rounded overflow-hidden animate-fade-in bg-[#0d0d0d] min-h-[200px]">
               <div className="px-5 py-4 bg-[#1a1a1a] border-b border-[#333] flex justify-between text-xs text-gray-400 uppercase font-bold tracking-wider">
                  <span>{t('forum.threads')}</span>
                  <div className="hidden md:flex gap-16 mr-8">
@@ -124,7 +126,12 @@ const ForumView: React.FC = () => {
                  </div>
               </div>
 
-              {forumThreads.length === 0 ? (
+              {loading ? (
+                 <div className="flex flex-col items-center justify-center p-12">
+                    <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mb-4" />
+                    <span className="text-gray-500 text-sm">Загрузка тем...</span>
+                 </div>
+              ) : forumThreads.length === 0 ? (
                 <div className="p-12 text-center text-gray-600 italic">
                    {t('forum.empty')}
                 </div>

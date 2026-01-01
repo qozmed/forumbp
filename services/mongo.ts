@@ -61,8 +61,23 @@ export const mongo = {
   // Getters
   async getCategories(): Promise<Category[]> { return apiCall('/categories'); },
   async getForums(): Promise<Forum[]> { return apiCall('/forums'); },
-  async getThreads(): Promise<Thread[]> { return apiCall('/threads'); },
-  async getPosts(): Promise<Post[]> { return apiCall('/posts'); },
+  
+  // Optimized Getters
+  async getThreads(forumId?: string, limit?: number): Promise<Thread[]> { 
+    let query = '/threads?';
+    if (forumId) query += `forumId=${forumId}&`;
+    if (limit) query += `limit=${limit}&`;
+    if (!forumId && limit) query += `sort=recent&`; // Recent Activity logic
+    return apiCall(query); 
+  },
+  
+  async getPosts(threadId?: string, userId?: string): Promise<Post[]> { 
+    let query = '/posts?';
+    if (threadId) query += `threadId=${threadId}&`;
+    if (userId) query += `userId=${userId}&`;
+    return apiCall(query); 
+  },
+
   async getPrefixes(): Promise<Prefix[]> { return apiCall('/prefixes'); },
   async getRoles(): Promise<Role[]> { return apiCall('/roles'); },
   async getUsers(): Promise<Record<string, User>> {

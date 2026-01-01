@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Home, ChevronRight, Lock, Share2, Pin, Check, Pencil, Trash2 } from 'lucide-react';
+import { Home, ChevronRight, Lock, Share2, Pin, Check, Pencil, Trash2, Loader2 } from 'lucide-react';
 import PostItem from '../components/Forum/PostItem';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import Sidebar from '../components/Layout/Sidebar';
@@ -10,11 +10,12 @@ import BBCodeEditor from '../components/UI/BBCodeEditor';
 
 const ThreadView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes } = useForum();
+  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes, loadPostsForThread } = useForum();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [replyContent, setReplyContent] = useState('');
   const [isCopied, setIsCopied] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Edit Header State
   const [isEditingHeader, setIsEditingHeader] = useState(false);
@@ -22,9 +23,21 @@ const ThreadView: React.FC = () => {
   const [editPrefix, setEditPrefix] = useState('');
 
   const thread = id ? getThread(id) : undefined;
+
+  // Lazy Load Posts
+  useEffect(() => {
+    if (id) {
+       setLoading(true);
+       loadPostsForThread(id).then(() => setLoading(false));
+    }
+  }, [id]);
   
   if (!thread) {
-    return <div className="text-center text-white py-20">Thread not found</div>;
+    // If thread is not in global "recent" list, we might need to fetch it separately or redirect.
+    // For now, assume if it's not found in Context (which loads structure), it doesn't exist or wasn't loaded by ForumView.
+    // But since we use client-side routing, usually we come from ForumView which populates Threads.
+    // Ideally, we should fetch single thread info if missing. For now, show loading if waiting for cache.
+    return <div className="text-center text-white py-20">Thread not found or loading...</div>;
   }
 
   const posts = getPostsByThread(thread.id);
@@ -46,7 +59,6 @@ const ThreadView: React.FC = () => {
   const canReply = currentUser && hasPermission(currentUser, 'canReply');
   const isAuthor = currentUser && currentUser.id === thread.authorId;
   
-  // Lock Check: Admin permission OR (Author + Self-Lock Permission)
   const canLock = currentUser && (
       hasPermission(currentUser, 'canLockThreads') || 
       (isAuthor && hasPermission(currentUser, 'canCloseOwnThreads'))
@@ -54,7 +66,6 @@ const ThreadView: React.FC = () => {
   
   const canPin = currentUser && hasPermission(currentUser, 'canPinThreads');
 
-  // Delete Check
   const canDelete = currentUser && (
     hasPermission(currentUser, 'canDeleteAnyThread') ||
     (isAuthor && hasPermission(currentUser, 'canDeleteOwnThreads'))
@@ -73,7 +84,6 @@ const ThreadView: React.FC = () => {
      }
   };
 
-  // Edit Header Check
   const canEditHeader = currentUser && (
      (isAuthor && hasPermission(currentUser, 'canEditOwnThreads')) ||
      hasPermission(currentUser, 'canEditAnyThread')
@@ -222,9 +232,18 @@ const ThreadView: React.FC = () => {
 
             {/* Posts */}
             <div className="space-y-4 md:space-y-6">
-               {posts.map(post => (
-                  <PostItem key={post.id} post={post} />
-               ))}
+               {loading ? (
+                  <div className="flex flex-col items-center justify-center p-12">
+                     <Loader2 className="w-10 h-10 text-cyan-500 animate-spin mb-4" />
+                     <span className="text-gray-500 text-sm">Загрузка сообщений...</span>
+                  </div>
+               ) : posts.length === 0 ? (
+                  <div className="p-12 text-center text-gray-500 italic">Нет сообщений.</div>
+               ) : (
+                  posts.map(post => (
+                     <PostItem key={post.id} post={post} />
+                  ))
+               )}
             </div>
 
             {/* Quick Reply */}
