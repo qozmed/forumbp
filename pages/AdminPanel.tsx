@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
 import { User, Permissions, Forum, Category, Role } from '../types';
-import { Shield, FolderPlus, MessageSquarePlus, Trash2, Tag, ChevronRight, CornerDownRight, Edit2, X, ArrowUp, ArrowDown, Activity, Users, MessageCircle, Lock } from 'lucide-react';
+import { Shield, FolderPlus, MessageSquarePlus, Trash2, Tag, ChevronRight, CornerDownRight, Edit2, X, ArrowUp, ArrowDown, Activity, Users, MessageCircle, Lock, Pencil, Check } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import { ROLE_EFFECTS } from '../constants';
@@ -18,6 +18,10 @@ const AdminPanel: React.FC = () => {
   } = useForum();
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'forums' | 'users' | 'prefixes' | 'roles'>('dashboard');
+
+  // Refs for scrolling
+  const roleFormRef = useRef<HTMLDivElement>(null);
+  const catFormRef = useRef<HTMLDivElement>(null);
 
   // State for Editing Categories/Forums
   const [editingItem, setEditingItem] = useState<{ type: 'category' | 'forum', id: string } | null>(null);
@@ -126,6 +130,7 @@ const AdminPanel: React.FC = () => {
   const startEditCategory = (c: Category) => {
     setEditingItem({ type: 'category', id: c.id });
     setCatName(c.title);
+    catFormRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const startEditForum = (f: Forum) => {
@@ -141,6 +146,7 @@ const AdminPanel: React.FC = () => {
       setParentType('category');
       setSelectedParentId(f.categoryId);
     }
+    catFormRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const cancelEdit = () => {
@@ -159,6 +165,9 @@ const AdminPanel: React.FC = () => {
     setRoleEffect(r.effect || '');
     // Merge with initial permissions to ensure new permission keys are present even if role data is old
     setPermissions({ ...initialPermissions, ...r.permissions });
+    
+    // Scroll form into view
+    roleFormRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const cancelEditRole = () => {
@@ -244,10 +253,10 @@ const AdminPanel: React.FC = () => {
       )}
 
       {activeTab === 'forums' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8" ref={catFormRef}>
           <div className="space-y-8">
              {/* Category Form */}
-             <div className={`p-6 rounded-lg border transition-all ${editingItem?.type === 'category' ? 'bg-cyan-900/10 border-cyan-500' : 'bg-gray-800 border-gray-700'}`}>
+             <div className={`p-6 rounded-lg border transition-all ${editingItem?.type === 'category' ? 'bg-cyan-900/10 border-cyan-500 shadow-lg shadow-cyan-900/20' : 'bg-gray-800 border-gray-700'}`}>
                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                  <FolderPlus className="w-5 h-5" /> 
                  {editingItem?.type === 'category' ? t('admin.editCat') : t('admin.createCat')}
@@ -268,7 +277,7 @@ const AdminPanel: React.FC = () => {
              </div>
 
              {/* Forum Form */}
-             <div className={`p-6 rounded-lg border transition-all ${editingItem?.type === 'forum' ? 'bg-cyan-900/10 border-cyan-500' : 'bg-gray-800 border-gray-700'}`}>
+             <div className={`p-6 rounded-lg border transition-all ${editingItem?.type === 'forum' ? 'bg-cyan-900/10 border-cyan-500 shadow-lg shadow-cyan-900/20' : 'bg-gray-800 border-gray-700'}`}>
                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                  <MessageSquarePlus className="w-5 h-5" /> 
                  {editingItem?.type === 'forum' ? t('admin.editForum') : t('admin.createForum')}
@@ -448,10 +457,17 @@ const AdminPanel: React.FC = () => {
 
       {activeTab === 'roles' && (
          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className={`p-6 rounded-lg border transition-all ${editingRole ? 'bg-purple-900/10 border-purple-500' : 'bg-gray-800 border-gray-700'}`}>
-               <h3 className="text-xl font-bold text-white mb-4">
+            <div ref={roleFormRef} className={`p-6 rounded-lg border transition-all ${editingRole ? 'bg-purple-900/10 border-purple-500 shadow-lg shadow-purple-900/20' : 'bg-gray-800 border-gray-700'}`}>
+               <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                  {editingRole ? <Pencil className="w-5 h-5 text-purple-400" /> : <Shield className="w-5 h-5 text-gray-400" />}
                   {editingRole ? 'Редактировать роль' : t('admin.createRole')}
                </h3>
+               {editingRole && (
+                 <div className="mb-4 text-xs text-purple-200 bg-purple-900/30 p-2 rounded border border-purple-800 flex items-center justify-between">
+                    <span>Вы редактируете роль: <b>{editingRole.name}</b></span>
+                    <button onClick={cancelEditRole} className="text-white bg-purple-800 px-2 py-0.5 rounded text-[10px] hover:bg-purple-700">Отмена</button>
+                 </div>
+               )}
                <form onSubmit={handleCreateOrUpdateRole} className="space-y-4">
                  <input type="text" value={roleName} onChange={e => setRoleName(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder={t('admin.roleName')} required />
                  <div>
@@ -466,17 +482,18 @@ const AdminPanel: React.FC = () => {
                  </div>
                  
                  <div className="bg-gray-900 p-4 rounded border border-gray-700 space-y-2 max-h-60 overflow-y-auto grid grid-cols-1 gap-1">
-                    <div className="text-xs font-bold text-gray-500 uppercase mb-2">{t('admin.permissions')}</div>
+                    <div className="text-xs font-bold text-gray-500 uppercase mb-2 sticky top-0 bg-gray-900 py-1">{t('admin.permissions')}</div>
                     {Object.keys(permissions).map(key => (
-                      <label key={key} className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:bg-white/5 p-1 rounded">
-                        <input type="checkbox" checked={permissions[key as keyof Permissions]} onChange={() => togglePermission(key as keyof Permissions)} />
+                      <label key={key} className="flex items-center gap-3 text-sm text-gray-300 cursor-pointer hover:bg-white/5 p-2 rounded border border-transparent hover:border-gray-700 transition-colors">
+                        <input type="checkbox" checked={permissions[key as keyof Permissions]} onChange={() => togglePermission(key as keyof Permissions)} className="w-4 h-4 rounded border-gray-600 bg-gray-800 text-purple-500 focus:ring-purple-500 focus:ring-offset-gray-900" />
                         {key.replace(/can/g, '').replace(/([A-Z])/g, ' $1').trim()}
                       </label>
                     ))}
                  </div>
                  
                  <div className="flex gap-2">
-                    <button className="bg-purple-600 px-4 py-2 rounded text-white font-bold flex-1 hover:bg-purple-500">
+                    <button className="bg-purple-600 px-4 py-2 rounded text-white font-bold flex-1 hover:bg-purple-500 flex items-center justify-center gap-2">
+                      {editingRole ? <Check className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
                       {editingRole ? t('general.save') : t('admin.createRole')}
                     </button>
                     {editingRole && (
@@ -490,23 +507,39 @@ const AdminPanel: React.FC = () => {
             
             <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
                <h3 className="text-xl font-bold text-white mb-4">{t('admin.existingRoles')}</h3>
-               <div className="space-y-2">
+               <div className="space-y-3">
                  {roles.map(r => (
-                   <div key={r.id} className="flex items-center justify-between bg-gray-900/50 p-3 rounded border border-gray-700">
+                   <div key={r.id} className={`flex items-center justify-between bg-gray-900/50 p-3 rounded border ${editingRole?.id === r.id ? 'border-purple-500 ring-1 ring-purple-500/50' : 'border-gray-700'} transition-all`}>
                       <div className="flex items-center gap-3">
                         <RoleBadge role={r} />
                         {r.isDefault && <span className="text-[10px] font-bold bg-green-900 text-green-200 px-1.5 py-0.5 rounded border border-green-700">{t('admin.default')}</span>}
                       </div>
                       <div className="flex items-center gap-2">
                         {!r.isDefault && (
-                           <button onClick={() => adminSetDefaultRole(r.id)} className="text-xs font-bold text-gray-500 hover:text-white px-2 py-1 hover:bg-gray-700 rounded transition-colors">
+                           <button 
+                             onClick={() => adminSetDefaultRole(r.id)} 
+                             className="text-xs font-bold text-gray-500 hover:text-white px-2 py-1 hover:bg-gray-700 rounded transition-colors mr-2"
+                             title="Set as default role for new users"
+                           >
                               {t('admin.makeDefault')}
                            </button>
                         )}
-                        <button onClick={() => startEditRole(r)} className="text-blue-400 p-1 hover:bg-blue-900/20 rounded">
-                           <Edit2 className="w-4 h-4" />
+                        <button 
+                          onClick={() => startEditRole(r)} 
+                          className="text-blue-400 hover:text-white hover:bg-blue-600 p-1.5 rounded transition-all" 
+                          title="Edit Role"
+                        >
+                           <Pencil className="w-4 h-4" />
                         </button>
-                        {!r.isSystem && <button onClick={() => adminDeleteRole(r.id)} className="text-red-400 p-1 hover:bg-red-900/20 rounded"><Trash2 className="w-4 h-4" /></button>}
+                        {!r.isSystem && (
+                          <button 
+                            onClick={() => adminDeleteRole(r.id)} 
+                            className="text-red-400 hover:text-white hover:bg-red-600 p-1.5 rounded transition-all"
+                            title="Delete Role"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                    </div>
                  ))}
