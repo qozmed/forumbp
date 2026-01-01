@@ -101,6 +101,9 @@ export interface User {
   // Activity Tracking
   lastActiveAt?: string;
   currentActivity?: UserActivity;
+  
+  // Security
+  ipHistory?: string[];
 }
 
 export interface Post {

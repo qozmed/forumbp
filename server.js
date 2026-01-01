@@ -43,13 +43,38 @@ const verifyPassword = (password, savedHash, savedSalt) => {
   }
 };
 
-// 2. Rate Limiter (Basic In-Memory DDoS Protection)
+// 2. Advanced Rate Limiter & DDoS Protection
 const rateLimitMap = new Map();
+const blockedIPs = new Map(); // IP -> Expiry Timestamp
+
+const getClientIp = (req) => {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress;
+};
+
 const rateLimiter = (req, res, next) => {
-  const ip = req.ip;
+  const ip = getClientIp(req);
   const now = Date.now();
-  const windowMs = 5 * 60 * 1000; // 5 minutes (reduced window)
-  const maxReq = 2000; // Increased limit to allow activity polling
+
+  // 1. Check if IP is hard-blocked (DDoS mitigation)
+  if (blockedIPs.has(ip)) {
+    const expiry = blockedIPs.get(ip);
+    if (now < expiry) {
+      // FORCE DROP CONNECTION
+      // Do not send a response, just destroy the socket to save resources
+      // and frustrate the attacker.
+      return res.destroy(); 
+    } else {
+      blockedIPs.delete(ip); // Unban after timeout
+    }
+  }
+
+  // 2. Rate Limiting Logic
+  const windowMs = 1 * 60 * 1000; // 1 minute window
+  const maxReq = 450; // UPDATED: 450 requests per minute
 
   if (!rateLimitMap.has(ip)) {
     rateLimitMap.set(ip, { count: 1, startTime: now });
@@ -61,9 +86,10 @@ const rateLimiter = (req, res, next) => {
     } else {
       data.count++;
       if (data.count > maxReq) {
-        // console.warn(`[RateLimit] IP ${ip} exceeded limit.`);
-        // Temporarily allow high traffic for development
-        // return res.status(429).json({ error: 'Too many requests, please try again later.' });
+        console.warn(`[DDoS Detect] Blocking IP: ${ip}`);
+        // UPDATED: Block for 10 minutes (10 * 60 * 1000)
+        blockedIPs.set(ip, now + 10 * 60 * 1000);
+        return res.destroy();
       }
     }
   }
@@ -99,6 +125,7 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '10mb' })); 
+app.set('trust proxy', true); // Trust proxy headers for IP logging
 app.use(rateLimiter);
 app.use(sanitizeInput);
 
@@ -171,7 +198,8 @@ const User = mongoose.model('User', new mongoose.Schema({
   signature: String,
   notifications: { type: Array, default: [] },
   lastActiveAt: String,
-  currentActivity: Object // { type, text, link, timestamp }
+  currentActivity: Object, // { type, text, link, timestamp }
+  ipHistory: { type: [String], select: false } // Store Login IPs (hidden by default)
 }, BaseOpts));
 
 const Category = mongoose.model('Category', new mongoose.Schema({
@@ -252,6 +280,8 @@ const handle = (fn) => async (req, res, next) => {
 // --- AUTH ROUTES ---
 app.post('/api/auth/register', handle(async (req, res) => {
   const { username, email, password } = req.body;
+  const ip = getClientIp(req);
+
   const exists = await User.findOne({ $or: [{ username }, { email }] });
   if (exists) return res.status(400).json({ error: 'User already exists' });
 
@@ -268,26 +298,39 @@ app.post('/api/auth/register', handle(async (req, res) => {
     salt,
     avatarUrl,
     roleId,
-    joinedAt: new Date().toISOString()
+    joinedAt: new Date().toISOString(),
+    ipHistory: [ip] // Log IP
   });
 
   const u = newUser.toObject();
   delete u.hash;
   delete u.salt;
+  delete u.ipHistory;
   res.status(201).json(u);
 }));
 
 app.post('/api/auth/login', handle(async (req, res) => {
   const { username, password } = req.body;
-  const user = await User.findOne({ username }).select('+hash +salt');
+  const ip = getClientIp(req);
+
+  const user = await User.findOne({ username }).select('+hash +salt +ipHistory');
   
   if (!user || !user.salt || !verifyPassword(password, user.hash, user.salt)) {
     return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  // Update IP History if this IP is new
+  if (!user.ipHistory.includes(ip)) {
+    user.ipHistory.push(ip);
+    // Keep only last 10 IPs to save space
+    if (user.ipHistory.length > 10) user.ipHistory.shift();
+    await user.save();
   }
   
   const u = user.toObject();
   delete u.hash;
   delete u.salt;
+  delete u.ipHistory; // Don't send IP history to frontend
   res.json(u);
 }));
 
@@ -423,6 +466,7 @@ const createCrud = (path, Model) => {
   app.put(`/api/${path}/:id`, handle(async (req, res) => {
     delete req.body.hash;
     delete req.body.salt;
+    delete req.body.ipHistory; // Prevent manual overwriting via generic PUT
     const item = await Model.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true });
     res.json(item);
   }));
