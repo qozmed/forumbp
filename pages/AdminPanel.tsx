@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { User, Permissions, Forum, Category } from '../types';
+import { User, Permissions, Forum, Category, Role } from '../types';
 import { Shield, FolderPlus, MessageSquarePlus, Trash2, Tag, ChevronRight, CornerDownRight, Edit2, X, ArrowUp, ArrowDown, Activity, Users, MessageCircle, Lock } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import PrefixBadge from '../components/UI/PrefixBadge';
@@ -14,12 +14,12 @@ const AdminPanel: React.FC = () => {
     adminCreateCategory, adminUpdateCategory, adminMoveCategory, adminDeleteCategory, 
     adminCreateForum, adminUpdateForum, adminMoveForum, adminDeleteForum,
     adminUpdateUserRole, adminCreatePrefix, adminDeletePrefix,
-    adminCreateRole, adminDeleteRole, adminSetDefaultRole, hasPermission, banUser
+    adminCreateRole, adminUpdateRole, adminDeleteRole, adminSetDefaultRole, hasPermission, banUser
   } = useForum();
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'forums' | 'users' | 'prefixes' | 'roles'>('dashboard');
 
-  // State for Editing
+  // State for Editing Categories/Forums
   const [editingItem, setEditingItem] = useState<{ type: 'category' | 'forum', id: string } | null>(null);
 
   // Forms state
@@ -35,11 +35,12 @@ const AdminPanel: React.FC = () => {
   const [prefixColor, setPrefixColor] = useState('#ffffff');
 
   // Role Form
+  const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [roleName, setRoleName] = useState('');
   const [roleColor, setRoleColor] = useState('#ffffff');
   const [roleEffect, setRoleEffect] = useState(''); 
   
-  const [permissions, setPermissions] = useState<Permissions>({
+  const initialPermissions: Permissions = {
     canViewAdminPanel: false, canViewProfiles: false, canViewMemberList: false, canSearch: false,
     canCreateThread: true, canReply: true, canUseRichText: true, canUploadImages: false,
     canLockThreads: false, canPinThreads: false, canDeleteOwnThreads: true, canDeleteAnyThread: false, 
@@ -48,7 +49,9 @@ const AdminPanel: React.FC = () => {
     canBanUsers: false, canViewUserEmails: false, canManageForums: false, canManageCategories: false,
     canManageRoles: false, canManagePrefixes: false, canUploadAvatar: true, canUploadBanner: true,
     canUseSignature: true, canChangeCustomTitle: false, canChangeUsername: false, canCloseOwnThreads: false
-  });
+  };
+
+  const [permissions, setPermissions] = useState<Permissions>(initialPermissions);
 
   if (!currentUser || !hasPermission(currentUser, 'canViewAdminPanel')) return <Navigate to="/" />;
 
@@ -97,11 +100,24 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleCreateRole = async (e: React.FormEvent) => {
+  const handleCreateOrUpdateRole = async (e: React.FormEvent) => {
     e.preventDefault();
     if (roleName) {
-      await adminCreateRole(roleName, roleColor, permissions, roleEffect);
-      setRoleName('');
+      if (editingRole) {
+        // Update existing role
+        await adminUpdateRole({
+          ...editingRole,
+          name: roleName,
+          color: roleColor,
+          effect: roleEffect,
+          permissions: permissions
+        });
+        cancelEditRole();
+      } else {
+        // Create new role
+        await adminCreateRole(roleName, roleColor, permissions, roleEffect);
+        cancelEditRole(); // Reset form
+      }
     }
   };
 
@@ -134,6 +150,23 @@ const AdminPanel: React.FC = () => {
     setForumDesc('');
     setIsForumClosed(false);
     setSelectedParentId('');
+  };
+
+  const startEditRole = (r: Role) => {
+    setEditingRole(r);
+    setRoleName(r.name);
+    setRoleColor(r.color);
+    setRoleEffect(r.effect || '');
+    // Merge with initial permissions to ensure new permission keys are present even if role data is old
+    setPermissions({ ...initialPermissions, ...r.permissions });
+  };
+
+  const cancelEditRole = () => {
+    setEditingRole(null);
+    setRoleName('');
+    setRoleColor('#ffffff');
+    setRoleEffect('');
+    setPermissions(initialPermissions);
   };
 
   const togglePermission = (perm: keyof Permissions) => setPermissions(prev => ({ ...prev, [perm]: !prev[perm] }));
@@ -415,9 +448,11 @@ const AdminPanel: React.FC = () => {
 
       {activeTab === 'roles' && (
          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-               <h3 className="text-xl font-bold text-white mb-4">{t('admin.createRole')}</h3>
-               <form onSubmit={handleCreateRole} className="space-y-4">
+            <div className={`p-6 rounded-lg border transition-all ${editingRole ? 'bg-purple-900/10 border-purple-500' : 'bg-gray-800 border-gray-700'}`}>
+               <h3 className="text-xl font-bold text-white mb-4">
+                  {editingRole ? 'Редактировать роль' : t('admin.createRole')}
+               </h3>
+               <form onSubmit={handleCreateOrUpdateRole} className="space-y-4">
                  <input type="text" value={roleName} onChange={e => setRoleName(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder={t('admin.roleName')} required />
                  <div>
                     <label className="text-xs text-gray-500 mb-1 block">{t('admin.baseColor')}</label>
@@ -439,9 +474,20 @@ const AdminPanel: React.FC = () => {
                       </label>
                     ))}
                  </div>
-                 <button className="bg-purple-600 px-4 py-2 rounded text-white font-bold w-full hover:bg-purple-500">{t('admin.createRole')}</button>
+                 
+                 <div className="flex gap-2">
+                    <button className="bg-purple-600 px-4 py-2 rounded text-white font-bold flex-1 hover:bg-purple-500">
+                      {editingRole ? t('general.save') : t('admin.createRole')}
+                    </button>
+                    {editingRole && (
+                      <button type="button" onClick={cancelEditRole} className="bg-gray-700 px-4 py-2 rounded text-white hover:bg-gray-600">
+                        <X className="w-5 h-5" />
+                      </button>
+                    )}
+                 </div>
                </form>
             </div>
+            
             <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
                <h3 className="text-xl font-bold text-white mb-4">{t('admin.existingRoles')}</h3>
                <div className="space-y-2">
@@ -457,6 +503,9 @@ const AdminPanel: React.FC = () => {
                               {t('admin.makeDefault')}
                            </button>
                         )}
+                        <button onClick={() => startEditRole(r)} className="text-blue-400 p-1 hover:bg-blue-900/20 rounded">
+                           <Edit2 className="w-4 h-4" />
+                        </button>
                         {!r.isSystem && <button onClick={() => adminDeleteRole(r.id)} className="text-red-400 p-1 hover:bg-red-900/20 rounded"><Trash2 className="w-4 h-4" /></button>}
                       </div>
                    </div>
