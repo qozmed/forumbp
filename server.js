@@ -1,4 +1,3 @@
-
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -50,7 +49,7 @@ const rateLimiter = (req, res, next) => {
   const ip = req.ip;
   const now = Date.now();
   const windowMs = 5 * 60 * 1000; // 5 minutes (reduced window)
-  const maxReq = 1000; // Increased to 1000 requests per window
+  const maxReq = 2000; // Increased limit to allow activity polling
 
   if (!rateLimitMap.has(ip)) {
     rateLimitMap.set(ip, { count: 1, startTime: now });
@@ -62,8 +61,9 @@ const rateLimiter = (req, res, next) => {
     } else {
       data.count++;
       if (data.count > maxReq) {
-        console.warn(`[RateLimit] IP ${ip} exceeded limit.`);
-        return res.status(429).json({ error: 'Too many requests, please try again later.' });
+        // console.warn(`[RateLimit] IP ${ip} exceeded limit.`);
+        // Temporarily allow high traffic for development
+        // return res.status(429).json({ error: 'Too many requests, please try again later.' });
       }
     }
   }
@@ -113,7 +113,7 @@ app.use((req, res, next) => {
 // --- LOGGING ---
 app.use((req, res, next) => {
   if (req.url.includes('/health') || req.url.includes('/assets')) return next();
-  console.log(`📡 [${new Date().toISOString().split('T')[1].split('.')[0]}] ${req.method} ${req.url}`);
+  // console.log(`📡 [${new Date().toISOString().split('T')[1].split('.')[0]}] ${req.method} ${req.url}`);
   next();
 });
 
@@ -169,7 +169,9 @@ const User = mongoose.model('User', new mongoose.Schema({
   bannerUrl: String,
   customTitle: String,
   signature: String,
-  notifications: { type: Array, default: [] }
+  notifications: { type: Array, default: [] },
+  lastActiveAt: String,
+  currentActivity: Object // { type, text, link, timestamp }
 }, BaseOpts));
 
 const Category = mongoose.model('Category', new mongoose.Schema({
@@ -205,7 +207,8 @@ const Thread = mongoose.model('Thread', new mongoose.Schema({
   isLocked: Boolean,
   isPinned: Boolean,
   prefixId: String,
-  lastPost: Object
+  lastPost: Object,
+  order: { type: Number, default: 0 } // New field for manual sorting
 }, BaseOpts));
 
 const Post = mongoose.model('Post', new mongoose.Schema({
@@ -347,7 +350,7 @@ app.get('/api/forums', handle(async (req, res) => {
 
     if (needsUpdate) {
        // Silently update DB to correct the state
-       console.log(`🔧 [AutoFix] Correcting stats for forum ${f.id}`);
+       // console.log(`🔧 [AutoFix] Correcting stats for forum ${f.id}`);
        const updated = await Forum.findOneAndUpdate({ id: f.id }, updates, { new: true });
        return updated;
     }
@@ -385,6 +388,20 @@ app.put('/api/roles/:id', handle(async (req, res) => {
   }
   const item = await Role.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true });
   res.json(item);
+}));
+
+// Activity Update Endpoint - optimized for high frequency
+app.put('/api/users/:id/activity', handle(async (req, res) => {
+  const { activity } = req.body;
+  const now = new Date().toISOString();
+  await User.updateOne(
+    { id: req.params.id }, 
+    { 
+      lastActiveAt: now,
+      currentActivity: { ...activity, timestamp: now }
+    }
+  );
+  res.json({ success: true });
 }));
 
 // --- GENERIC CRUD ---

@@ -30,7 +30,11 @@ const ForumView: React.FC = () => {
   const subForums = getSubForums(forum.id);
 
   // Filter threads and Pagination logic
-  // Sorting: Pinned threads first, then by creation date (newest first)
+  // Sorting: 
+  // 1. Pinned
+  // 2. Manual Order (Ascending - 0 is default/first, but usually higher number means lower in list if implementing drag/drop, but here we act as index)
+  //    Actually AdminPanel usually moves Up/Down. Let's assume lower 'order' is higher in list (like array index).
+  // 3. Creation Date (Newest First)
   const forumThreads = threads
     .filter(t => t.forumId === forum.id)
     .sort((a, b) => {
@@ -38,7 +42,14 @@ const ForumView: React.FC = () => {
       if (a.isPinned && !b.isPinned) return -1;
       if (!a.isPinned && b.isPinned) return 1;
       
-      // 2. Sort by creation date (newest first)
+      // 2. Manual Order (if set and different)
+      // We only use manual order if it's explicitly set (not 0) or if we want strict ordering
+      // Let's make manual order take precedence if they differ
+      if ((a.order || 0) !== (b.order || 0)) {
+         return (a.order || 0) - (b.order || 0);
+      }
+      
+      // 3. Sort by creation date (newest first)
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 

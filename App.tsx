@@ -12,11 +12,13 @@ import SettingsPage from './pages/Settings';
 import SearchPage from './pages/Search';
 import AdminPanel from './pages/AdminPanel';
 import UserProfile from './pages/UserProfile';
+import ActivityTracker from './components/Layout/ActivityTracker';
 
 const AppContent: React.FC = () => {
   const { t } = useLanguage();
   return (
     <Router>
+        <ActivityTracker />
         <div className="min-h-screen flex flex-col relative text-gray-200">
           <Particles />
           <Header />

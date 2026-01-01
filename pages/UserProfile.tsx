@@ -2,9 +2,9 @@ import React from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { formatDate } from '../utils/date';
+import { formatDate, timeAgo } from '../utils/date';
 import { parseBBCodeToHtml } from '../utils/bbCodeParser';
-import { MessageSquare, Trophy, Calendar, User, Clock, Hash, Ban, Lock } from 'lucide-react';
+import { MessageSquare, Trophy, Calendar, User, Clock, Hash, Ban, Lock, Activity } from 'lucide-react';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import RoleBadge from '../components/UI/RoleBadge';
 
@@ -38,6 +38,11 @@ const UserProfile: React.FC = () => {
 
   const canBan = hasPermission(currentUser, 'canBanUsers');
 
+  // Activity Status Logic
+  const isOnline = user.lastActiveAt && (Date.now() - new Date(user.lastActiveAt).getTime() < 5 * 60 * 1000); // 5 mins threshold
+  const statusText = isOnline ? (user.currentActivity?.text || 'В сети') : 'Не в сети';
+  const statusLink = user.currentActivity?.link;
+
   return (
     <div className="container mx-auto px-4 py-4 md:py-8 animate-fade-in">
       {/* Cover / Header */}
@@ -62,7 +67,12 @@ const UserProfile: React.FC = () => {
                  className={`w-24 h-24 md:w-40 md:h-40 rounded-xl bg-[#000] border-4 border-[#0d0d0d] shadow-2xl object-cover ${user.isBanned ? 'grayscale' : ''}`} 
                  alt={user.username} 
                />
-               {!user.isBanned && <div className={`absolute bottom-1 right-1 md:bottom-2 md:right-2 w-3 h-3 md:w-4 md:h-4 rounded-full border-2 border-[#0d0d0d] bg-green-500`} title={t('user.online')}></div>}
+               {!user.isBanned && (
+                  <div 
+                     className={`absolute bottom-1 right-1 md:bottom-2 md:right-2 w-4 h-4 md:w-5 md:h-5 rounded-full border-2 border-[#0d0d0d] shadow-lg ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} 
+                     title={isOnline ? 'Online' : 'Offline'}
+                  ></div>
+               )}
             </div>
 
             <div className="flex-1 min-w-0 pt-0 md:pt-2 w-full">
@@ -80,6 +90,20 @@ const UserProfile: React.FC = () => {
                         )}
                      </h1>
                      <p className="text-gray-500 text-sm">{user.customTitle || (roles[0] ? roles[0].name : t('user.member'))}</p>
+                     
+                     {/* ACTIVITY STATUS */}
+                     {!user.isBanned && (
+                        <div className="mt-2 flex items-center gap-2 text-xs">
+                           <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                           {isOnline && statusLink ? (
+                              <Link to={statusLink} className="text-gray-400 hover:text-white hover:underline transition-colors flex items-center gap-1">
+                                 {statusText}
+                              </Link>
+                           ) : (
+                              <span className="text-gray-500">{statusText}</span>
+                           )}
+                        </div>
+                     )}
                   </div>
                   
                   <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center w-full md:w-auto">
@@ -126,6 +150,10 @@ const UserProfile: React.FC = () => {
                   <div className="flex justify-between items-center py-2 border-b border-[#222]">
                      <span className="text-gray-500 flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> {t('user.joined')}</span>
                      <span className="text-gray-300">{formatDate(user.joinedAt, language, false)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-[#222]">
+                     <span className="text-gray-500 flex items-center gap-2"><Activity className="w-3.5 h-3.5" /> Активность</span>
+                     <span className="text-gray-300">{user.lastActiveAt ? timeAgo(user.lastActiveAt, language) : '-'}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-[#222]">
                      <span className="text-gray-500 flex items-center gap-2"><Hash className="w-3.5 h-3.5" /> ID</span>

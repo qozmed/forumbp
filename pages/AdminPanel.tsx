@@ -2,8 +2,8 @@ import React, { useState, useRef } from 'react';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
 import { User, Permissions, Forum, Category, Role } from '../types';
-import { Shield, FolderPlus, MessageSquarePlus, Trash2, Tag, ChevronRight, CornerDownRight, Edit2, X, ArrowUp, ArrowDown, Activity, Users, MessageCircle, Lock, Pencil, Check } from 'lucide-react';
-import { Navigate } from 'react-router-dom';
+import { Shield, FolderPlus, MessageSquarePlus, Trash2, Tag, ChevronRight, CornerDownRight, Edit2, X, ArrowUp, ArrowDown, Activity, Users, MessageCircle, Lock, Pencil, Check, Move } from 'lucide-react';
+import { Navigate, Link } from 'react-router-dom';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import { ROLE_EFFECTS } from '../constants';
 import RoleBadge from '../components/UI/RoleBadge';
@@ -14,10 +14,11 @@ const AdminPanel: React.FC = () => {
     adminCreateCategory, adminUpdateCategory, adminMoveCategory, adminDeleteCategory, 
     adminCreateForum, adminUpdateForum, adminMoveForum, adminDeleteForum,
     adminUpdateUserRole, adminCreatePrefix, adminDeletePrefix,
-    adminCreateRole, adminUpdateRole, adminDeleteRole, adminSetDefaultRole, hasPermission, banUser
+    adminCreateRole, adminUpdateRole, adminDeleteRole, adminSetDefaultRole, hasPermission, banUser,
+    adminMoveThread, adminReorderThread, deleteThread
   } = useForum();
   const { t } = useLanguage();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'forums' | 'users' | 'prefixes' | 'roles'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'forums' | 'threads' | 'users' | 'prefixes' | 'roles'>('dashboard');
 
   // Refs for scrolling
   const roleFormRef = useRef<HTMLDivElement>(null);
@@ -34,6 +35,11 @@ const AdminPanel: React.FC = () => {
   const [parentType, setParentType] = useState<'category' | 'forum'>('category');
   const [selectedParentId, setSelectedParentId] = useState('');
   
+  // Threads Tab State
+  const [selectedForumForThreads, setSelectedForumForThreads] = useState<string>('');
+  const [moveThreadId, setMoveThreadId] = useState<string | null>(null);
+  const [targetForumId, setTargetForumId] = useState<string>('');
+
   // Prefix Form
   const [prefixText, setPrefixText] = useState('');
   const [prefixColor, setPrefixColor] = useState('#ffffff');
@@ -124,6 +130,14 @@ const AdminPanel: React.FC = () => {
       }
     }
   };
+  
+  const handleMoveThread = async () => {
+    if (moveThreadId && targetForumId) {
+        await adminMoveThread(moveThreadId, targetForumId);
+        setMoveThreadId(null);
+        setTargetForumId('');
+    }
+  };
 
   // --- EDIT HELPERS ---
 
@@ -180,6 +194,19 @@ const AdminPanel: React.FC = () => {
 
   const togglePermission = (perm: keyof Permissions) => setPermissions(prev => ({ ...prev, [perm]: !prev[perm] }));
 
+  // Helper to filter threads for the threads tab
+  const getFilteredThreads = () => {
+     let filtered = threads;
+     if (selectedForumForThreads) {
+         filtered = filtered.filter(t => t.forumId === selectedForumForThreads);
+     }
+     // Sort by order and then date, matching the ForumView logic
+     return filtered.sort((a,b) => {
+         if ((a.order || 0) !== (b.order || 0)) return (a.order || 0) - (b.order || 0);
+         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+     });
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold text-white mb-6 flex items-center gap-3">
@@ -187,9 +214,9 @@ const AdminPanel: React.FC = () => {
       </h1>
 
       <div className="flex gap-4 mb-8 border-b border-gray-700 pb-1 overflow-x-auto">
-        {['dashboard', 'forums', 'users', 'prefixes', 'roles'].map(tab => (
+        {['dashboard', 'forums', 'threads', 'users', 'prefixes', 'roles'].map(tab => (
            <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-4 py-2 font-medium capitalize flex items-center gap-2 ${activeTab === tab ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white'}`}>
-             {t(`admin.${tab}`)}
+             {t(`admin.${tab}` === 'admin.threads' ? 'Темы' : `admin.${tab}`)}
            </button>
         ))}
       </div>
@@ -396,6 +423,91 @@ const AdminPanel: React.FC = () => {
                })}
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'threads' && (
+        <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+            <h3 className="text-xl font-bold text-white mb-4">Управление Темами</h3>
+            <div className="flex gap-4 mb-6 items-center">
+                <span className="text-sm text-gray-400">Выберите форум:</span>
+                <select 
+                    value={selectedForumForThreads} 
+                    onChange={(e) => setSelectedForumForThreads(e.target.value)}
+                    className="bg-gray-900 border border-gray-600 rounded p-2 text-white outline-none min-w-[200px]"
+                >
+                    <option value="">Все форумы</option>
+                    {forums.map(f => (
+                        <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                </select>
+            </div>
+            
+            <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                {getFilteredThreads().map((thread, idx, arr) => (
+                    <div key={thread.id} className="flex items-center justify-between bg-gray-900/50 p-3 rounded border border-gray-700 hover:bg-gray-900 transition-colors">
+                        <div className="flex items-center gap-3">
+                            {/* Reordering */}
+                            {selectedForumForThreads && (
+                                <div className="flex flex-col">
+                                    <button 
+                                        onClick={() => adminReorderThread(thread.id, 'up')} 
+                                        disabled={idx === 0} 
+                                        className="text-gray-500 hover:text-white disabled:opacity-20"
+                                    >
+                                        <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                    <button 
+                                        onClick={() => adminReorderThread(thread.id, 'down')} 
+                                        disabled={idx === arr.length - 1} 
+                                        className="text-gray-500 hover:text-white disabled:opacity-20"
+                                    >
+                                        <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            )}
+                            <div className="min-w-0">
+                                <Link to={`/thread/${thread.id}`} className="font-bold text-white hover:underline truncate block">
+                                    <PrefixBadge prefixId={thread.prefixId} /> {thread.title}
+                                </Link>
+                                <div className="text-xs text-gray-500">
+                                    Автор: {users[thread.authorId]?.username} | Форум: {forums.find(f => f.id === thread.forumId)?.name}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                             {/* Move Dialog Logic */}
+                             {moveThreadId === thread.id ? (
+                                 <div className="flex items-center gap-2 bg-black/50 p-1 rounded border border-gray-600 animate-in fade-in zoom-in">
+                                     <select 
+                                         value={targetForumId} 
+                                         onChange={(e) => setTargetForumId(e.target.value)}
+                                         className="bg-gray-800 text-xs text-white p-1 rounded border border-gray-600 w-32"
+                                     >
+                                         <option value="">Куда?</option>
+                                         {forums.filter(f => f.id !== thread.forumId).map(f => (
+                                             <option key={f.id} value={f.id}>{f.name}</option>
+                                         ))}
+                                     </select>
+                                     <button onClick={handleMoveThread} disabled={!targetForumId} className="bg-green-600 p-1 rounded hover:bg-green-500 disabled:opacity-50"><Check className="w-3 h-3" /></button>
+                                     <button onClick={() => setMoveThreadId(null)} className="bg-red-600 p-1 rounded hover:bg-red-500"><X className="w-3 h-3" /></button>
+                                 </div>
+                             ) : (
+                                 <button 
+                                     onClick={() => { setMoveThreadId(thread.id); setTargetForumId(''); }}
+                                     className="flex items-center gap-1 text-xs bg-blue-900/30 text-blue-400 px-2 py-1 rounded hover:bg-blue-900/50 border border-blue-900/30"
+                                 >
+                                     <Move className="w-3 h-3" /> Перенести
+                                 </button>
+                             )}
+                             
+                             <button onClick={() => deleteThread(thread.id)} className="text-red-500 hover:bg-red-900/20 p-1.5 rounded"><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                    </div>
+                ))}
+                {getFilteredThreads().length === 0 && <div className="text-center text-gray-500 py-8">Темы не найдены</div>}
+            </div>
         </div>
       )}
 

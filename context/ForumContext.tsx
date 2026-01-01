@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { Category, Forum, Thread, Post, User, Prefix, Role, Permissions, Notification } from '../types';
+import { Category, Forum, Thread, Post, User, Prefix, Role, Permissions, Notification, UserActivity } from '../types';
 import { db, initDB } from '../utils/db';
 import { mongo } from '../services/mongo';
 import { APP_CONFIG } from '../config';
@@ -51,6 +51,7 @@ interface ForumContextType {
   toggleThreadLock: (threadId: string) => Promise<void>; 
   toggleThreadPin: (threadId: string) => Promise<void>;  
   updateUser: (user: User) => Promise<void>;
+  updateUserActivity: (activity: UserActivity) => Promise<void>; // NEW: Activity Tracking
   banUser: (userId: string, isBanned: boolean) => Promise<void>;
   markNotificationsRead: () => Promise<void>;
   adminCreateCategory: (title: string, backgroundUrl: string) => Promise<void>;
@@ -61,6 +62,8 @@ interface ForumContextType {
   adminUpdateForum: (id: string, categoryId: string, name: string, description: string, icon: string, parentId?: string, isClosed?: boolean) => Promise<void>;
   adminMoveForum: (id: string, direction: 'up' | 'down') => Promise<void>; 
   adminDeleteForum: (id: string) => Promise<void>;
+  adminMoveThread: (threadId: string, newForumId: string) => Promise<void>; // NEW: Move thread
+  adminReorderThread: (threadId: string, direction: 'up' | 'down') => Promise<void>; // NEW: Reorder thread
   adminUpdateUserRole: (userId: string, roleId: string, secondaryRoleId?: string) => Promise<void>; 
   adminCreatePrefix: (text: string, color: string) => Promise<void>;
   adminDeletePrefix: (id: string) => Promise<void>;
@@ -91,6 +94,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const isMounted = useRef(false);
   const pollTimer = useRef<any>(null); // Ref to hold the timer ID
+  const lastActivityUpdate = useRef<number>(0); // Throttle activity updates
 
   const getApi = (offlineOverride: boolean) => (useMongo && !offlineOverride) ? mongo : db;
 
@@ -332,6 +336,38 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   };
 
+  const updateUserActivity = async (activity: UserActivity) => {
+    if (!currentUser) return;
+    
+    // Throttle: Max 1 update per 10 seconds unless the type changed drastically
+    const now = Date.now();
+    const typeChanged = currentUser.currentActivity?.type !== activity.type;
+    
+    if (!typeChanged && (now - lastActivityUpdate.current < 10000)) {
+        return;
+    }
+
+    lastActivityUpdate.current = now;
+
+    // Use a lightweight fetch if possible to avoid full reload triggering via mutate
+    try {
+        if (useMongo && !isOffline) {
+           await fetch(`${APP_CONFIG.API_URL}/users/${currentUser.id}/activity`, {
+               method: 'PUT',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ activity })
+           });
+        } else {
+           // Local DB logic
+           const updated = { ...currentUser, lastActiveAt: new Date().toISOString(), currentActivity: activity };
+           await db.updateUser(updated);
+           setCurrentUser(updated);
+        }
+    } catch (e) {
+        console.error("Failed to update activity", e);
+    }
+  };
+
   const createThread = (fid: string, title: string, content: string, pid?: string) => mutate(async () => {
     if(!currentUser) return;
     
@@ -348,7 +384,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     
     await mutationApi.addThread({ 
       id: tid, forumId: fid, title, authorId: currentUser.id, 
-      createdAt: now, viewCount: 0, replyCount: 0, isLocked: false, isPinned: false, prefixId: pid 
+      createdAt: now, viewCount: 0, replyCount: 0, isLocked: false, isPinned: false, prefixId: pid, order: 0 
     });
 
     await mutationApi.addPost({ 
@@ -391,6 +427,49 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const deleteThread = (threadId: string) => mutate(async () => {
      await mutationApi.deleteThread(threadId);
+  });
+
+  const adminMoveThread = (threadId: string, newForumId: string) => mutate(async () => {
+    const thread = getThread(threadId);
+    if (!thread) return;
+    if (thread.forumId === newForumId) return;
+
+    // The server smart-sync should handle forum stats updates, but we update the thread pointer
+    await mutationApi.updateThread({
+        ...thread,
+        forumId: newForumId
+    });
+  });
+
+  const adminReorderThread = (threadId: string, direction: 'up' | 'down') => mutate(async () => {
+     const thread = getThread(threadId);
+     if (!thread) return;
+     
+     // Threads in same forum
+     const siblings = threads.filter(t => t.forumId === thread.forumId);
+     // Sort primarily by order, then by date (to get visual sequence)
+     const sortedSiblings = siblings.sort((a,b) => {
+         if ((a.order || 0) !== (b.order || 0)) return (a.order || 0) - (b.order || 0);
+         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(); // Newest date first is default top
+     });
+
+     // Normalize orders to be sequential indices for easier swapping
+     const normalized = sortedSiblings.map((t, idx) => ({ ...t, order: idx }));
+     
+     const index = normalized.findIndex(t => t.id === threadId);
+     if (index === -1) return;
+
+     if (direction === 'up' && index > 0) {
+        normalized[index].order = index - 1;
+        normalized[index - 1].order = index;
+        await mutationApi.updateThread(normalized[index]);
+        await mutationApi.updateThread(normalized[index - 1]);
+     } else if (direction === 'down' && index < normalized.length - 1) {
+        normalized[index].order = index + 1;
+        normalized[index + 1].order = index;
+        await mutationApi.updateThread(normalized[index]);
+        await mutationApi.updateThread(normalized[index + 1]);
+     }
   });
 
   const replyToThread = (tid: string, content: string) => mutate(async () => {
@@ -606,9 +685,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       getForum, getThread, getPostsByThread, getPostsByUser, getForumsByCategory, getSubForums, getUser, getUserRole, getUserRoles, hasPermission,
       login, register, logout,
       createThread, updateThread, deleteThread, replyToThread, editPost, deletePost, toggleLike, toggleThreadLock, toggleThreadPin,
-      updateUser, banUser, markNotificationsRead,
+      updateUser, updateUserActivity, banUser, markNotificationsRead,
       adminCreateCategory, adminUpdateCategory, adminMoveCategory, adminDeleteCategory, 
       adminCreateForum, adminUpdateForum, adminMoveForum, adminDeleteForum, adminUpdateUserRole,
+      adminMoveThread, adminReorderThread,
       adminCreatePrefix, adminDeletePrefix, adminCreateRole, adminUpdateRole, adminDeleteRole, adminSetDefaultRole, search
     }}>
       {isOffline && (

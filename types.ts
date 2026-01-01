@@ -73,6 +73,13 @@ export interface Notification {
   createdAt: string;
 }
 
+export interface UserActivity {
+  type: 'viewing_index' | 'viewing_forum' | 'viewing_thread' | 'creating_thread' | 'editing' | 'admin' | 'idle' | 'custom';
+  text: string; // "Viewing thread 'Rules'"
+  link?: string; // "/thread/123"
+  timestamp: string;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -90,6 +97,10 @@ export interface User {
   customTitle?: string;
   signature?: string;
   notifications: Notification[];
+  
+  // Activity Tracking
+  lastActiveAt?: string;
+  currentActivity?: UserActivity;
 }
 
 export interface Post {
@@ -114,6 +125,7 @@ export interface Thread {
   isLocked: boolean;
   isPinned: boolean;
   prefixId?: string;
+  order?: number; // Manual ordering
   lastPost?: {
     authorId: string;
     createdAt: string;

@@ -234,6 +234,8 @@ export const db = {
   async addThread(thread: Thread): Promise<void> {
     await delay();
     const threads = getTable<Thread[]>(DB_KEYS.THREADS);
+    // Ensure order is set
+    thread.order = threads.length > 0 ? Math.max(...threads.map(t => t.order || 0)) + 1 : 0;
     threads.push(thread);
     setTable(DB_KEYS.THREADS, threads);
   },

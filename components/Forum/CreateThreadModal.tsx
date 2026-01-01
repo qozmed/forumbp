@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForum } from '../../context/ForumContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { X, PenTool } from 'lucide-react';
@@ -11,11 +11,24 @@ interface Props {
 }
 
 const CreateThreadModal: React.FC<Props> = ({ forumId, isOpen, onClose }) => {
-  const { createThread, prefixes } = useForum();
+  const { createThread, prefixes, getForum, updateUserActivity } = useForum();
   const { t } = useLanguage();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [prefixId, setPrefixId] = useState<string>('');
+  
+  const forum = getForum(forumId);
+
+  useEffect(() => {
+    if (isOpen && forum) {
+        updateUserActivity({
+            type: 'creating_thread',
+            text: `Создает тему в разделе "${forum.name}"`,
+            link: `/forum/${forumId}`,
+            timestamp: new Date().toISOString()
+        });
+    }
+  }, [isOpen, forum]);
 
   if (!isOpen) return null;
 
