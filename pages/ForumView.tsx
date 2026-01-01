@@ -12,10 +12,10 @@ import { timeAgo } from '../utils/date';
 
 const ForumView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getForum, getSubForums, threads, users, currentUser, hasPermission, loadThreadsForForum, isReady } = useForum();
+  const { getForum, getSubForums, threads, users, currentUser, hasPermission, loadThreadsForForum } = useForum();
   const { t, language } = useLanguage();
   const [isCreateOpen, setCreateOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loadingThreads, setLoadingThreads] = useState(false); // Local loading state
   
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -26,13 +26,13 @@ const ForumView: React.FC = () => {
   // Lazy Load threads when ID changes
   useEffect(() => {
     if (id) {
-        setLoading(true);
-        loadThreadsForForum(id).finally(() => setLoading(false));
+        setLoadingThreads(true);
+        loadThreadsForForum(id).finally(() => setLoadingThreads(false));
     }
   }, [id]);
   
+  // Context guarantees Forums are loaded. If forum is undefined here, it truly doesn't exist.
   if (!forum) {
-    if (!isReady) return null; // Wait for global structure
     return (
        <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
           <AlertTriangle className="w-12 h-12 text-gray-600 mb-4" />
@@ -127,7 +127,7 @@ const ForumView: React.FC = () => {
                  </div>
               </div>
 
-              {loading ? (
+              {loadingThreads && forumThreads.length === 0 ? (
                  <div className="flex flex-col items-center justify-center p-20 animate-fade-in">
                     <Loader2 className="w-10 h-10 text-cyan-500 animate-spin mb-4" />
                     <span className="text-gray-500 text-sm">Загрузка тем...</span>

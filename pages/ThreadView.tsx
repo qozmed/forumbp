@@ -10,12 +10,12 @@ import BBCodeEditor from '../components/UI/BBCodeEditor';
 
 const ThreadView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes, loadPostsForThread, loadThread, isReady } = useForum();
+  const { getThread, getPostsByThread, getForum, getUser, currentUser, replyToThread, updateThread, deleteThread, hasPermission, toggleThreadLock, toggleThreadPin, prefixes, loadPostsForThread, loadThread } = useForum();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [replyContent, setReplyContent] = useState('');
   const [isCopied, setIsCopied] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [isLoadingThread, setIsLoadingThread] = useState(true);
 
   // Edit Header State
   const [isEditingHeader, setIsEditingHeader] = useState(false);
@@ -27,18 +27,18 @@ const ThreadView: React.FC = () => {
   // Load Thread and Posts
   useEffect(() => {
     if (id) {
-       setLoading(true);
+       setIsLoadingThread(true);
        const promises = [loadPostsForThread(id)];
        // Only fetch thread details if not already in cache or if explicitly refreshing
        if (!thread) {
            promises.push(loadThread(id));
        }
-       Promise.all(promises).finally(() => setLoading(false));
+       Promise.all(promises).finally(() => setIsLoadingThread(false));
     }
   }, [id, thread ? 'exists' : 'missing']); 
   
   // Show Loading Spinner ONLY if we are actually loading AND don't have data yet
-  if (loading && !thread) {
+  if (isLoadingThread && !thread) {
      return (
         <div className="flex flex-col items-center justify-center py-32 text-white animate-fade-in">
            <Loader2 className="w-12 h-12 animate-spin text-cyan-500 mb-4" />
@@ -49,7 +49,6 @@ const ThreadView: React.FC = () => {
 
   // Not found state (only after loading is finished)
   if (!thread) {
-    if (!isReady) return null; // Still initializing global context
     return (
        <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
           <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
@@ -254,7 +253,7 @@ const ThreadView: React.FC = () => {
 
             {/* Posts */}
             <div className="space-y-4 md:space-y-6">
-               {loading ? (
+               {isLoadingThread && posts.length === 0 ? (
                   <div className="flex flex-col items-center justify-center p-12">
                      <Loader2 className="w-10 h-10 text-cyan-500 animate-spin mb-4" />
                      <span className="text-gray-500 text-sm">Загрузка сообщений...</span>

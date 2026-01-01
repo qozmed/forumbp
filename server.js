@@ -141,8 +141,9 @@ app.use((req, res, next) => {
 app.get('/api/health', (req, res) => {
   const dbState = mongoose.connection.readyState;
   if (dbState !== 1) {
-    // Log but don't fail immediately for cold starts sometimes
     console.warn('DB Check: Not ready state:', dbState);
+    // Don't fail immediately on render during spin-up
+    if (dbState === 2) return res.json({ status: 'connecting', message: 'DB Connecting' });
     return res.status(503).json({ status: 'error', message: 'Database unavailable' });
   }
   res.json({ status: 'ok', serverTime: new Date().toISOString() });
