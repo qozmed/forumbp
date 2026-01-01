@@ -227,6 +227,46 @@ const AdminPanel: React.FC = () => {
      }
   };
 
+  // --- RECURSIVE FORUM RENDERER ---
+  const renderForumList = (parentId: string | undefined, categoryId: string) => {
+    const levelForums = forums.filter(f => 
+        f.categoryId === categoryId && 
+        (parentId ? f.parentId === parentId : !f.parentId)
+    ).sort((a,b) => (a.order||0) - (b.order||0));
+
+    if (levelForums.length === 0) return null;
+
+    return (
+        <div className={parentId ? "pl-6 space-y-1 mt-1 border-l border-gray-700 ml-2" : "p-2 space-y-1"}>
+            {levelForums.map((f, idx) => (
+                <div key={f.id}>
+                    <div className="flex justify-between items-center text-sm text-gray-400 px-2 py-1 hover:bg-gray-800 rounded group">
+                        <div className="flex items-center gap-2">
+                             {hasPermission(currentUser, 'canManageForums') && (
+                                <div className="flex flex-col">
+                                    <button onClick={() => adminMoveForum(f.id, 'up')} disabled={idx === 0} className="text-gray-600 hover:text-white disabled:opacity-20"><ArrowUp className="w-2.5 h-2.5" /></button>
+                                    <button onClick={() => adminMoveForum(f.id, 'down')} disabled={idx === levelForums.length - 1} className="text-gray-600 hover:text-white disabled:opacity-20"><ArrowDown className="w-2.5 h-2.5" /></button>
+                                </div>
+                             )}
+                             {parentId ? <CornerDownRight className="w-3 h-3 text-gray-500" /> : <ChevronRight className="w-3 h-3" />}
+                             <span>{f.name}</span>
+                             {f.isClosed && <Lock className="w-3 h-3 text-red-500" />}
+                        </div>
+                        {hasPermission(currentUser, 'canManageForums') && (
+                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                               <button onClick={() => startEditForum(f)} className="text-blue-400 p-1 hover:bg-blue-900/20 rounded"><Edit2 className="w-3 h-3" /></button>
+                               <button onClick={() => adminDeleteForum(f.id)} className="text-red-500"><Trash2 className="w-3 h-3" /></button>
+                             </div>
+                        )}
+                    </div>
+                    {/* Recursive Call */}
+                    {renderForumList(f.id, categoryId)}
+                </div>
+            ))}
+        </div>
+    );
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold text-white mb-6 flex items-center gap-3">
@@ -342,7 +382,14 @@ const AdminPanel: React.FC = () => {
                      </div>
                      <select value={selectedParentId} onChange={e => setSelectedParentId(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white" required>
                        <option value="">{t('admin.selectParent')}</option>
-                       {parentType === 'category' ? categories.map(c => <option key={c.id} value={c.id}>{c.title}</option>) : forums.filter(f => !f.parentId).map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                       {parentType === 'category' 
+                          ? categories.map(c => <option key={c.id} value={c.id}>{c.title}</option>) 
+                          : forums
+                              .filter(f => editingItem?.id !== f.id) // Prevent selecting self as parent
+                              .map(f => (
+                                <option key={f.id} value={f.id}>{f.name} {f.parentId ? '(Подфорум)' : ''}</option>
+                              ))
+                       }
                      </select>
                      <input type="text" value={forumName} onChange={e => setForumName(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder={t('admin.forumName')} required />
                      <input type="text" value={forumDesc} onChange={e => setForumDesc(e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder={t('admin.forumDesc')} />
@@ -372,7 +419,6 @@ const AdminPanel: React.FC = () => {
             <h3 className="text-xl font-bold text-white mb-4">{t('admin.preview')}</h3>
             <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
                {categories.map((c, idx) => {
-                  const catForums = forums.filter(f => f.categoryId === c.id && !f.parentId);
                   return (
                     <div key={c.id} className="bg-gray-900 rounded border border-gray-700 overflow-hidden">
                        {/* Category Header */}
@@ -400,63 +446,8 @@ const AdminPanel: React.FC = () => {
                           )}
                        </div>
                        
-                       {/* Forums List */}
-                       <div className="p-2 space-y-1">
-                          {catForums.length === 0 && <div className="text-xs text-gray-600 italic px-2">{t('general.noResults')}</div>}
-                          {catForums.map((f, fIdx) => {
-                             const subForums = forums.filter(sf => sf.parentId === f.id);
-                             return (
-                               <div key={f.id}>
-                                  <div className="flex justify-between items-center text-sm text-gray-400 px-2 py-1 hover:bg-gray-800 rounded group">
-                                     <div className="flex items-center gap-2">
-                                        {hasPermission(currentUser, 'canManageForums') && (
-                                            <div className="flex flex-col">
-                                              <button onClick={() => adminMoveForum(f.id, 'up')} disabled={fIdx === 0} className="text-gray-600 hover:text-white disabled:opacity-20"><ArrowUp className="w-2.5 h-2.5" /></button>
-                                              <button onClick={() => adminMoveForum(f.id, 'down')} disabled={fIdx === catForums.length - 1} className="text-gray-600 hover:text-white disabled:opacity-20"><ArrowDown className="w-2.5 h-2.5" /></button>
-                                            </div>
-                                        )}
-                                        <ChevronRight className="w-3 h-3" />
-                                        <span>{f.name}</span>
-                                        {f.isClosed && <Lock className="w-3 h-3 text-red-500" />}
-                                     </div>
-                                     {hasPermission(currentUser, 'canManageForums') && (
-                                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                           <button onClick={() => startEditForum(f)} className="text-blue-400 p-1 hover:bg-blue-900/20 rounded"><Edit2 className="w-3 h-3" /></button>
-                                           <button onClick={() => adminDeleteForum(f.id)} className="text-red-500"><Trash2 className="w-3 h-3" /></button>
-                                         </div>
-                                     )}
-                                  </div>
-                                  
-                                  {/* Sub Forums */}
-                                  {subForums.length > 0 && (
-                                     <div className="pl-6 space-y-1 mt-1 border-l border-gray-700 ml-2">
-                                        {subForums.map((sf, sfIdx) => (
-                                           <div key={sf.id} className="flex justify-between items-center text-xs text-gray-500 px-2 py-0.5 hover:bg-gray-800 rounded group">
-                                             <div className="flex items-center gap-2">
-                                                {hasPermission(currentUser, 'canManageForums') && (
-                                                    <div className="flex flex-col">
-                                                      <button onClick={() => adminMoveForum(sf.id, 'up')} disabled={sfIdx === 0} className="text-gray-600 hover:text-white disabled:opacity-20"><ArrowUp className="w-2 h-2" /></button>
-                                                      <button onClick={() => adminMoveForum(sf.id, 'down')} disabled={sfIdx === subForums.length - 1} className="text-gray-600 hover:text-white disabled:opacity-20"><ArrowDown className="w-2 h-2" /></button>
-                                                    </div>
-                                                )}
-                                                <CornerDownRight className="w-3 h-3" />
-                                                <span>{sf.name}</span>
-                                                {sf.isClosed && <Lock className="w-2.5 h-2.5 text-red-500" />}
-                                             </div>
-                                             {hasPermission(currentUser, 'canManageForums') && (
-                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button onClick={() => startEditForum(sf)} className="text-blue-400 p-1 hover:bg-blue-900/20 rounded"><Edit2 className="w-3 h-3" /></button>
-                                                    <button onClick={() => adminDeleteForum(sf.id)} className="text-red-500"><Trash2 className="w-3 h-3" /></button>
-                                                 </div>
-                                             )}
-                                           </div>
-                                        ))}
-                                     </div>
-                                  )}
-                               </div>
-                             );
-                          })}
-                       </div>
+                       {/* Forums List (Recursive) */}
+                       {renderForumList(undefined, c.id)}
                     </div>
                   );
                })}
