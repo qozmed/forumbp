@@ -38,7 +38,7 @@ interface ForumContextType {
   getUserRole: (user: User) => Role | undefined; 
   getUserRoles: (user: User) => Role[]; 
   hasPermission: (user: User | null, perm: keyof Permissions) => boolean;
-  login: (username: string, password?: string) => Promise<void>;
+  login: (email: string, password?: string) => Promise<void>;
   register: (username: string, email: string, password?: string) => Promise<void>;
   logout: () => void;
   createThread: (forumId: string, title: string, content: string, prefixId?: string) => Promise<void>;
@@ -341,16 +341,16 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   // Wrappers
-  const login = async (u: string, p?: string) => {
+  const login = async (email: string, p?: string) => {
     if (isOffline) {
-       const user = await db.login(u);
+       const user = await db.login(email);
        // @ts-ignore
        if (user.password !== simpleHash(p || '')) throw new Error("Неверный пароль");
        if (user.isBanned) throw new Error("Пользователь забанен");
        setCurrentUser(user);
        db.setSession(user.id);
     } else {
-       const user = await mongo.login(u, p);
+       const user = await mongo.login(email, p);
        if (user.isBanned) throw new Error("Пользователь забанен");
        setCurrentUser(user);
        mongo.setSession(user.id);

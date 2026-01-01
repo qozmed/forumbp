@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Settings, Save, PenTool, Mail, Lock, User, Tag } from 'lucide-react';
+import { Settings, Save, PenTool, Mail, Lock, User, Tag, Clock } from 'lucide-react';
 import Sidebar from '../components/Layout/Sidebar';
 import ImageUpload from '../components/UI/ImageUpload';
 
@@ -24,14 +24,30 @@ const SettingsPage: React.FC = () => {
 
   if (!currentUser) return <div className="p-8 text-center text-white">{t('auth.login')}</div>;
 
+  // COOLDOWN LOGIC
+  const DAYS_COOLDOWN = 12;
+  const lastChange = new Date(currentUser.lastUsernameChange || 0);
+  const diffTime = Math.abs(Date.now() - lastChange.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+  // If lastChange is 0 (never changed) -> diffDays is huge -> canChange is true
+  // If changed yesterday -> diffDays is 1 -> canChange is false (needs >= 12)
+  const canChangeUsernameByTime = !currentUser.lastUsernameChange || diffDays >= DAYS_COOLDOWN;
+  const daysLeft = DAYS_COOLDOWN - diffDays;
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     
     // Validate Username change if applicable
-    if (username !== currentUser.username && !hasPermission(currentUser, 'canChangeUsername')) {
-      setError(t('settings.noPermissionUsername'));
-      return;
+    if (username !== currentUser.username) {
+        if (!hasPermission(currentUser, 'canChangeUsername')) {
+            setError(t('settings.noPermissionUsername'));
+            return;
+        }
+        if (!canChangeUsernameByTime) {
+            setError(`Вы не можете менять никнейм. Осталось дней: ${daysLeft > 0 ? daysLeft : 0}`);
+            return;
+        }
     }
 
     await updateUser({
@@ -40,8 +56,10 @@ const SettingsPage: React.FC = () => {
       bannerUrl,
       signature,
       email,
-      username: hasPermission(currentUser, 'canChangeUsername') ? username : currentUser.username,
+      username: (hasPermission(currentUser, 'canChangeUsername') && canChangeUsernameByTime) ? username : currentUser.username,
       customTitle: hasPermission(currentUser, 'canChangeCustomTitle') ? customTitle : currentUser.customTitle,
+      // Update cooldown timestamp ONLY if username changed
+      lastUsernameChange: (username !== currentUser.username) ? new Date().toISOString() : currentUser.lastUsernameChange
     });
     setSuccess(true);
     setPassword(''); 
@@ -74,16 +92,21 @@ const SettingsPage: React.FC = () => {
              {/* Account Info */}
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <div className="space-y-2">
-                 <label className="text-sm font-medium text-gray-400 flex items-center gap-2">
-                   <User className="w-4 h-4" /> {t('auth.username')}
+                 <label className="text-sm font-medium text-gray-400 flex items-center gap-2 justify-between">
+                   <span className="flex items-center gap-2"><User className="w-4 h-4" /> {t('auth.username')}</span>
+                   {!canChangeUsernameByTime && (
+                       <span className="text-[10px] text-red-400 flex items-center gap-1">
+                           <Clock className="w-3 h-3" /> Кулдаун: {daysLeft} дн.
+                       </span>
+                   )}
                  </label>
                  <input 
                    type="text" 
                    value={username}
                    onChange={(e) => setUsername(e.target.value)}
-                   disabled={!hasPermission(currentUser, 'canChangeUsername')}
+                   disabled={!hasPermission(currentUser, 'canChangeUsername') || !canChangeUsernameByTime}
                    className="w-full bg-gray-900 border border-gray-700 rounded p-2.5 text-white focus:border-cyan-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                   title={!hasPermission(currentUser, 'canChangeUsername') ? t('settings.noPermissionUsername') : ''}
+                   title={!canChangeUsernameByTime ? `Осталось ${daysLeft} дней до смены` : ''}
                  />
                </div>
 

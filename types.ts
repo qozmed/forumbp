@@ -116,6 +116,9 @@ export interface User {
   lastActiveAt?: string;
   currentActivity?: UserActivity;
   
+  // Settings Cooldowns
+  lastUsernameChange?: string; // ISO Date string
+
   // Security
   ipHistory?: string[];
 }

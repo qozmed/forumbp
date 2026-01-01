@@ -114,7 +114,8 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json({ limit: '10mb' })); 
+// Increased limit to 50mb to support large Animated GIFs
+app.use(express.json({ limit: '50mb' })); 
 
 const sanitizeInput = (req, res, next) => {
   const sanitize = (obj) => {
@@ -188,6 +189,7 @@ const User = mongoose.model('User', new mongoose.Schema({
   bannerUrl: String,
   customTitle: String,
   signature: String,
+  lastUsernameChange: { type: String, default: '' }, // New Field
   notifications: { type: Array, default: [] },
   lastActiveAt: String,
   currentActivity: Object, 
@@ -302,21 +304,24 @@ app.post('/api/auth/register', handle(async (req, res) => {
 }));
 
 app.post('/api/auth/login', handle(async (req, res) => {
-  const { username, password } = req.body;
+  // LOGIN BY EMAIL ONLY
+  const { email, password } = req.body; 
   const ip = getClientIp(req);
 
-  const user = await User.findOne({ username }).select('+hash +salt +ipHistory');
+  // Find by Email
+  const user = await User.findOne({ email }).select('+hash +salt +ipHistory');
   
   if (!user || !user.salt || !verifyPassword(password, user.hash, user.salt)) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  // Update IP History
-  if (!user.ipHistory.includes(ip)) {
-    user.ipHistory.push(ip);
-    if (user.ipHistory.length > 10) user.ipHistory.shift();
-    await user.save();
+  // FORCE RECORD IP HISTORY (Last 20)
+  if (!user.ipHistory) user.ipHistory = [];
+  user.ipHistory.unshift(ip);
+  if (user.ipHistory.length > 20) {
+      user.ipHistory = user.ipHistory.slice(0, 20);
   }
+  await user.save();
   
   const u = user.toObject();
   delete u.hash;

@@ -33,16 +33,25 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
     e.preventDefault();
     setError('');
 
-    if (!username || !password || (isRegistering && !email)) {
-      setError(t('auth.error.required'));
-      return;
+    // Validation Logic
+    if (isRegistering) {
+        if (!username || !email || !password) {
+            setError(t('auth.error.required'));
+            return;
+        }
+    } else {
+        if (!email || !password) {
+            setError(t('auth.error.required'));
+            return;
+        }
     }
 
     try {
       if (isRegistering) {
         await register(username, email, password);
       } else {
-        await login(username, password);
+        // Login uses Email now
+        await login(email, password);
       }
       onClose();
       // Reset fields on successful close
@@ -73,35 +82,35 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
             </div>
           )}
 
+          {isRegistering && (
+            <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-400">{t('auth.username')}</label>
+                <div className="relative">
+                <User className="absolute left-3 top-2.5 w-5 h-5 text-gray-600" />
+                <input 
+                    type="text" 
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full bg-[#0a0a0a] border border-[#333] rounded py-2.5 pl-10 pr-4 text-white focus:border-white focus:outline-none transition-all"
+                    placeholder={t('auth.placeholder.username')}
+                />
+                </div>
+            </div>
+          )}
+
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-400">{t('auth.username')}</label>
+            <label className="text-sm font-medium text-gray-400">{t('auth.email')}</label>
             <div className="relative">
-              <User className="absolute left-3 top-2.5 w-5 h-5 text-gray-600" />
+              <Mail className="absolute left-3 top-2.5 w-5 h-5 text-gray-600" />
               <input 
-                type="text" 
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                type="email" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-[#0a0a0a] border border-[#333] rounded py-2.5 pl-10 pr-4 text-white focus:border-white focus:outline-none transition-all"
-                placeholder={t('auth.placeholder.username')}
+                placeholder={t('auth.placeholder.email')}
               />
             </div>
           </div>
-
-          {isRegistering && (
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-400">{t('auth.email')}</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-2.5 w-5 h-5 text-gray-600" />
-                <input 
-                  type="email" 
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-[#0a0a0a] border border-[#333] rounded py-2.5 pl-10 pr-4 text-white focus:border-white focus:outline-none transition-all"
-                  placeholder={t('auth.placeholder.email')}
-                />
-              </div>
-            </div>
-          )}
 
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-400">{t('auth.password')}</label>

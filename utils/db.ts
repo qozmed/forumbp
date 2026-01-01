@@ -62,12 +62,12 @@ export const db = {
     dbChannel.onmessage = () => callback();
   },
 
-  async login(username: string, _password?: string): Promise<User> {
+  async login(email: string, _password?: string): Promise<User> {
     await delay();
     const users = getTable<Record<string, User>>(DB_KEYS.USERS);
     const userList = Object.values(users);
-    // Robust check: ensure u.username exists before lowercasing
-    const user = userList.find(u => (u.username || '').toLowerCase() === (username || '').toLowerCase());
+    // Robust check: ensure u.email exists before lowercasing. Login is now by Email.
+    const user = userList.find(u => (u.email || '').toLowerCase() === (email || '').toLowerCase());
     if (!user) throw new Error('User not found');
     return user;
   },
