@@ -29,6 +29,13 @@ export const SEED_ROLES: Role[] = [
     priority: 100,
     permissions: {
       canViewAdminPanel: true,
+      canViewAdminDashboard: true,
+      canViewAdminUsers: true,
+      canViewAdminForums: true,
+      canViewAdminThreads: true,
+      canViewAdminRoles: true,
+      canViewAdminPrefixes: true,
+      
       canViewProfiles: true,
       canViewMemberList: true,
       canSearch: true,
@@ -40,17 +47,25 @@ export const SEED_ROLES: Role[] = [
       canPinThreads: true,
       canDeleteOwnThreads: true,
       canDeleteAnyThread: true,
-      canEditOwnThreads: true, // NEW
-      canEditAnyThread: true, // NEW
+      canEditOwnThreads: true,
+      canEditAnyThread: true,
       canDeleteOwnPosts: true,
       canEditOwnPosts: true,
       canDeleteAnyPost: true,
       canEditAnyPost: true,
+      
       canBanUsers: true,
       canViewUserEmails: true,
+      canManageUsers: true,
+      
       canManageForums: true,
       canManageCategories: true,
+      
       canManageRoles: true,
+      canCreateRole: true,
+      canEditRole: true,
+      canDeleteRole: true,
+      
       canManagePrefixes: true,
       canUploadAvatar: true,
       canUploadBanner: true,
@@ -70,6 +85,13 @@ export const SEED_ROLES: Role[] = [
     priority: 80,
     permissions: {
       canViewAdminPanel: false,
+      canViewAdminDashboard: false,
+      canViewAdminUsers: false,
+      canViewAdminForums: false,
+      canViewAdminThreads: false,
+      canViewAdminRoles: false,
+      canViewAdminPrefixes: false,
+
       canViewProfiles: true,
       canViewMemberList: true,
       canSearch: true,
@@ -81,17 +103,25 @@ export const SEED_ROLES: Role[] = [
       canPinThreads: false,
       canDeleteOwnThreads: true,
       canDeleteAnyThread: false,
-      canEditOwnThreads: true, // NEW
-      canEditAnyThread: true, // NEW
+      canEditOwnThreads: true,
+      canEditAnyThread: true,
       canDeleteOwnPosts: true,
       canEditOwnPosts: true,
       canDeleteAnyPost: false,
       canEditAnyPost: false,
+      
       canBanUsers: false,
       canViewUserEmails: false,
+      canManageUsers: false,
+      
       canManageForums: false,
       canManageCategories: false,
+      
       canManageRoles: false,
+      canCreateRole: false,
+      canEditRole: false,
+      canDeleteRole: false,
+      
       canManagePrefixes: false,
       canUploadAvatar: true,
       canUploadBanner: true,
@@ -110,6 +140,13 @@ export const SEED_ROLES: Role[] = [
     priority: 10,
     permissions: {
       canViewAdminPanel: false,
+      canViewAdminDashboard: false,
+      canViewAdminUsers: false,
+      canViewAdminForums: false,
+      canViewAdminThreads: false,
+      canViewAdminRoles: false,
+      canViewAdminPrefixes: false,
+
       canViewProfiles: true,
       canViewMemberList: true,
       canSearch: true,
@@ -121,17 +158,25 @@ export const SEED_ROLES: Role[] = [
       canPinThreads: false,
       canDeleteOwnThreads: true, 
       canDeleteAnyThread: false,
-      canEditOwnThreads: true, // NEW
-      canEditAnyThread: false, // NEW
+      canEditOwnThreads: true, 
+      canEditAnyThread: false, 
       canDeleteOwnPosts: true, 
       canEditOwnPosts: true,
       canDeleteAnyPost: false,
       canEditAnyPost: false,
+      
       canBanUsers: false,
       canViewUserEmails: false,
+      canManageUsers: false,
+      
       canManageForums: false,
       canManageCategories: false,
+      
       canManageRoles: false,
+      canCreateRole: false,
+      canEditRole: false,
+      canDeleteRole: false,
+      
       canManagePrefixes: false,
       canUploadAvatar: true,
       canUploadBanner: true,
@@ -150,6 +195,13 @@ export const SEED_ROLES: Role[] = [
     priority: 0,
     permissions: {
       canViewAdminPanel: false,
+      canViewAdminDashboard: false,
+      canViewAdminUsers: false,
+      canViewAdminForums: false,
+      canViewAdminThreads: false,
+      canViewAdminRoles: false,
+      canViewAdminPrefixes: false,
+
       canViewProfiles: false, // RESTRICTED
       canViewMemberList: false, // RESTRICTED
       canSearch: false,
@@ -167,11 +219,19 @@ export const SEED_ROLES: Role[] = [
       canEditOwnPosts: false,
       canDeleteAnyPost: false,
       canEditAnyPost: false,
+      
       canBanUsers: false,
       canViewUserEmails: false,
+      canManageUsers: false,
+      
       canManageForums: false,
       canManageCategories: false,
+      
       canManageRoles: false,
+      canCreateRole: false,
+      canEditRole: false,
+      canDeleteRole: false,
+      
       canManagePrefixes: false,
       canUploadAvatar: false,
       canUploadBanner: false,
@@ -242,7 +302,6 @@ export const SEED_FORUMS: Forum[] = [
   }
 ];
 
-// Empty initial state
 export const MOCK_CATEGORIES = SEED_CATEGORIES;
 export const MOCK_FORUMS = SEED_FORUMS;
 export const MOCK_USERS: Record<string, User> = {};

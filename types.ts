@@ -1,23 +1,31 @@
 export interface Permissions {
   // General Access
   canViewAdminPanel: boolean;
-  canViewProfiles: boolean; // New: Guest restriction
-  canViewMemberList: boolean; // New
-  canSearch: boolean; // New
+  canViewProfiles: boolean;
+  canViewMemberList: boolean;
+  canSearch: boolean;
   
+  // Admin Sections (Granular)
+  canViewAdminDashboard: boolean; // NEW
+  canViewAdminUsers: boolean;     // NEW
+  canViewAdminForums: boolean;    // NEW
+  canViewAdminThreads: boolean;   // NEW
+  canViewAdminRoles: boolean;     // NEW
+  canViewAdminPrefixes: boolean;  // NEW
+
   // Thread Creation & Interaction
   canCreateThread: boolean;
   canReply: boolean;
-  canUseRichText: boolean; // New: BBCode usage
-  canUploadImages: boolean; // New
+  canUseRichText: boolean;
+  canUploadImages: boolean;
   
   // Thread Moderation
   canLockThreads: boolean;
   canPinThreads: boolean;
   canDeleteOwnThreads: boolean;
   canDeleteAnyThread: boolean;
-  canEditOwnThreads: boolean; // NEW: Edit own thread title/prefix
-  canEditAnyThread: boolean;  // NEW: Edit any thread title/prefix
+  canEditOwnThreads: boolean;
+  canEditAnyThread: boolean;
   
   // Post Management
   canDeleteOwnPosts: boolean;
@@ -28,12 +36,18 @@ export interface Permissions {
   // User Management
   canBanUsers: boolean;
   canViewUserEmails: boolean;
+  canManageUsers: boolean; // Renamed general logic
   
   // System Management
   canManageForums: boolean;
   canManageCategories: boolean;
-  canManageRoles: boolean;
   canManagePrefixes: boolean;
+
+  // Role Management (Granular)
+  canManageRoles: boolean; // View list
+  canCreateRole: boolean;  // NEW
+  canEditRole: boolean;    // NEW
+  canDeleteRole: boolean;  // NEW
 
   // Profile & Customization
   canUploadAvatar: boolean;

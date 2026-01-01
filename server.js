@@ -15,9 +15,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 // RENDER CONFIGURATION
-// Render automatically provides the PORT variable.
 const PORT = process.env.PORT || 5001; 
-// Must listen on 0.0.0.0 for Render/Docker containers, not just 127.0.0.1
 const HOST = '0.0.0.0'; 
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/blackproject';
@@ -32,7 +30,6 @@ const hashPassword = (password) => {
 };
 
 const verifyPassword = (password, savedHash, savedSalt) => {
-  // Prevent crash if user data is incomplete (missing salt/hash)
   if (!password || !savedHash || !savedSalt) return false;
   try {
     const hash = crypto.pbkdf2Sync(password, savedSalt, 1000, 64, 'sha512').toString('hex');
@@ -44,8 +41,24 @@ const verifyPassword = (password, savedHash, savedSalt) => {
 };
 
 // 2. Advanced Rate Limiter & DDoS Protection
-const rateLimitMap = new Map();
-const blockedIPs = new Map(); // IP -> Expiry Timestamp
+// Map stores: IP -> { count, startTime }
+let rateLimitMap = new Map();
+// Map stores: IP -> Expiry Timestamp
+let blockedIPs = new Map(); 
+
+// GARBAGE COLLECTION for DDoS Maps
+// Prevents memory leaks if millions of IPs attack.
+setInterval(() => {
+    const now = Date.now();
+    // Cleanup expired blocks
+    blockedIPs.forEach((expiry, ip) => {
+        if (now > expiry) blockedIPs.delete(ip);
+    });
+    // Cleanup old rate limit entries (older than 2 mins)
+    rateLimitMap.forEach((data, ip) => {
+        if (now - data.startTime > 2 * 60 * 1000) rateLimitMap.delete(ip);
+    });
+}, 60 * 1000); // Run every minute
 
 const getClientIp = (req) => {
   const forwarded = req.headers['x-forwarded-for'];
@@ -65,7 +78,6 @@ const rateLimiter = (req, res, next) => {
     if (now < expiry) {
       // FORCE DROP CONNECTION
       // Do not send a response, just destroy the socket to save resources
-      // and frustrate the attacker.
       return res.destroy(); 
     } else {
       blockedIPs.delete(ip); // Unban after timeout
@@ -74,7 +86,7 @@ const rateLimiter = (req, res, next) => {
 
   // 2. Rate Limiting Logic
   const windowMs = 1 * 60 * 1000; // 1 minute window
-  const maxReq = 450; // UPDATED: 450 requests per minute
+  const maxReq = 450; // 450 requests per minute
 
   if (!rateLimitMap.has(ip)) {
     rateLimitMap.set(ip, { count: 1, startTime: now });
@@ -87,7 +99,7 @@ const rateLimiter = (req, res, next) => {
       data.count++;
       if (data.count > maxReq) {
         console.warn(`[DDoS Detect] Blocking IP: ${ip}`);
-        // UPDATED: Block for 10 minutes (10 * 60 * 1000)
+        // Block for 10 minutes
         blockedIPs.set(ip, now + 10 * 60 * 1000);
         return res.destroy();
       }
@@ -96,13 +108,31 @@ const rateLimiter = (req, res, next) => {
   next();
 };
 
-// 3. Input Sanitization (Basic NoSQL Injection Protection)
+// --- MIDDLEWARE ORDER IS CRITICAL ---
+
+// 1. Rate Limit FIRST - Drop bad traffic before parsing JSON or checking CORS
+app.use(rateLimiter);
+
+// 2. Trust Proxy (for IP detection behind load balancers like Render)
+app.set('trust proxy', true); 
+
+// 3. CORS
+app.use(cors({
+  origin: '*', 
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true
+}));
+
+// 4. JSON Parsing (with size limit)
+app.use(express.json({ limit: '10mb' })); 
+
+// 5. Input Sanitization
 const sanitizeInput = (req, res, next) => {
   const sanitize = (obj) => {
     for (const key in obj) {
       if (Object.prototype.hasOwnProperty.call(obj, key)) {
         if (typeof obj[key] === 'string') {
-          // Remove common MongoDB operators from input
           obj[key] = obj[key].replace(/\$/g, '');
         } else if (typeof obj[key] === 'object' && obj[key] !== null) {
           sanitize(obj[key]);
@@ -115,18 +145,6 @@ const sanitizeInput = (req, res, next) => {
   sanitize(req.params);
   next();
 };
-
-// --- MIDDLEWARE ---
-app.use(cors({
-  origin: '*', 
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  credentials: true
-}));
-
-app.use(express.json({ limit: '10mb' })); 
-app.set('trust proxy', true); // Trust proxy headers for IP logging
-app.use(rateLimiter);
 app.use(sanitizeInput);
 
 // Security Headers
@@ -134,13 +152,6 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
-  next();
-});
-
-// --- LOGGING ---
-app.use((req, res, next) => {
-  if (req.url.includes('/health') || req.url.includes('/assets')) return next();
-  // console.log(`📡 [${new Date().toISOString().split('T')[1].split('.')[0]}] ${req.method} ${req.url}`);
   next();
 });
 
@@ -198,8 +209,8 @@ const User = mongoose.model('User', new mongoose.Schema({
   signature: String,
   notifications: { type: Array, default: [] },
   lastActiveAt: String,
-  currentActivity: Object, // { type, text, link, timestamp }
-  ipHistory: { type: [String], select: false } // Store Login IPs (hidden by default)
+  currentActivity: Object, 
+  ipHistory: { type: [String], select: false }
 }, BaseOpts));
 
 const Category = mongoose.model('Category', new mongoose.Schema({
@@ -236,7 +247,7 @@ const Thread = mongoose.model('Thread', new mongoose.Schema({
   isPinned: Boolean,
   prefixId: String,
   lastPost: Object,
-  order: { type: Number, default: 0 } // New field for manual sorting
+  order: { type: Number, default: 0 } 
 }, BaseOpts));
 
 const Post = mongoose.model('Post', new mongoose.Schema({
@@ -299,7 +310,7 @@ app.post('/api/auth/register', handle(async (req, res) => {
     avatarUrl,
     roleId,
     joinedAt: new Date().toISOString(),
-    ipHistory: [ip] // Log IP
+    ipHistory: [ip] 
   });
 
   const u = newUser.toObject();
@@ -322,7 +333,6 @@ app.post('/api/auth/login', handle(async (req, res) => {
   // Update IP History if this IP is new
   if (!user.ipHistory.includes(ip)) {
     user.ipHistory.push(ip);
-    // Keep only last 10 IPs to save space
     if (user.ipHistory.length > 10) user.ipHistory.shift();
     await user.save();
   }
@@ -330,33 +340,25 @@ app.post('/api/auth/login', handle(async (req, res) => {
   const u = user.toObject();
   delete u.hash;
   delete u.salt;
-  delete u.ipHistory; // Don't send IP history to frontend
+  delete u.ipHistory; 
   res.json(u);
 }));
 
-// --- SMART FORUM FETCH (SELF-HEALING) ---
-// This route overrides the generic CRUD to ensure consistency
+// --- SMART FORUM FETCH ---
 app.get('/api/forums', handle(async (req, res) => {
   const forums = await Forum.find().sort({ order: 1 });
-  
-  // Real-time consistency check
-  // Iterate through all forums and ensure their statistics match the real DB state
   const syncedForums = await Promise.all(forums.map(async (f) => {
-    // 1. Get real thread count
     const realThreadCount = await Thread.countDocuments({ forumId: f.id });
     
-    // 2. Get real message count (all posts in threads of this forum)
     const threadsInForum = await Thread.find({ forumId: f.id }).select('id');
     const threadIds = threadsInForum.map(t => t.id);
     const realMessageCount = await Post.countDocuments({ threadId: { $in: threadIds } });
 
-    // 3. Get real last post (based on latest activity in ANY thread in this forum)
     const latestThread = await Thread.findOne({ forumId: f.id }).sort({ 'lastPost.createdAt': -1 });
     
     let needsUpdate = false;
     let updates = {};
 
-    // Check Counts
     if (f.threadCount !== realThreadCount) {
        updates.threadCount = realThreadCount;
        needsUpdate = true;
@@ -366,16 +368,12 @@ app.get('/api/forums', handle(async (req, res) => {
        needsUpdate = true;
     }
 
-    // Check Last Post Validity
     if (!latestThread) {
-       // If no threads exist, lastPost should be null
        if (f.lastPost) {
           updates.lastPost = null;
           needsUpdate = true;
        }
     } else {
-       // If latest thread exists, does forum.lastPost match it?
-       // We check ID and Timestamp to be sure
        const actualLastPostTime = latestThread.lastPost ? latestThread.lastPost.createdAt : latestThread.createdAt;
        const storedLastPostTime = f.lastPost ? f.lastPost.createdAt : null;
 
@@ -392,15 +390,11 @@ app.get('/api/forums', handle(async (req, res) => {
     }
 
     if (needsUpdate) {
-       // Silently update DB to correct the state
-       // console.log(`🔧 [AutoFix] Correcting stats for forum ${f.id}`);
        const updated = await Forum.findOneAndUpdate({ id: f.id }, updates, { new: true });
        return updated;
     }
-    
     return f;
   }));
-
   res.json(syncedForums);
 }));
 
@@ -433,7 +427,6 @@ app.put('/api/roles/:id', handle(async (req, res) => {
   res.json(item);
 }));
 
-// Activity Update Endpoint - optimized for high frequency
 app.put('/api/users/:id/activity', handle(async (req, res) => {
   const { activity } = req.body;
   const now = new Date().toISOString();
@@ -449,7 +442,6 @@ app.put('/api/users/:id/activity', handle(async (req, res) => {
 
 // --- GENERIC CRUD ---
 const createCrud = (path, Model) => {
-  // Generic GET (Used for everything except Forums now, as Forums has a custom handler above)
   if (path !== 'forums') {
     app.get(`/api/${path}`, handle(async (req, res) => {
       const items = await Model.find().sort({ order: 1 });
@@ -466,7 +458,7 @@ const createCrud = (path, Model) => {
   app.put(`/api/${path}/:id`, handle(async (req, res) => {
     delete req.body.hash;
     delete req.body.salt;
-    delete req.body.ipHistory; // Prevent manual overwriting via generic PUT
+    delete req.body.ipHistory; 
     const item = await Model.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true });
     res.json(item);
   }));
@@ -479,19 +471,16 @@ const createCrud = (path, Model) => {
 
 createCrud('users', User);
 createCrud('categories', Category);
-createCrud('forums', Forum); // Keeps POST/PUT/DELETE, but GET is overridden above
+createCrud('forums', Forum); 
 createCrud('threads', Thread);
 createCrud('posts', Post);
 createCrud('prefixes', Prefix);
 createCrud('roles', Role);
 
-// --- STATIC FILES (FOR PRODUCTION/RENDER) ---
-// Serve React Frontend if build exists
+// --- STATIC FILES ---
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Handle React Routing (SPA Fallback)
 app.get('*', (req, res, next) => {
-  // If request is for API but hasn't been handled, it's a 404 API error, don't serve HTML
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'API endpoint not found' });
   }
@@ -499,12 +488,5 @@ app.get('*', (req, res, next) => {
 });
 
 app.listen(PORT, HOST, () => {
-  console.log(`
-  ===========================================
-  🚀 SERVER RUNNING ON PORT ${PORT}
-  📡 HOST: ${HOST} (Listening on all interfaces)
-  🔗 URL: http://${HOST === '0.0.0.0' ? '127.0.0.1' : HOST}:${PORT}
-  🏥 Health Check: /api/health
-  ===========================================
-  `);
+  console.log(`🚀 SERVER RUNNING ON PORT ${PORT}`);
 });

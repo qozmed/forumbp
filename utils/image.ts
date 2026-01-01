@@ -9,11 +9,15 @@
  */
 export const compressImage = (file: File, maxWidth: number = 800, quality: number = 0.7): Promise<string> => {
     return new Promise((resolve, reject) => {
-      // 1. Handle GIF Animations - Skip Canvas
-      if (file.type === 'image/gif') {
+      // 1. Handle GIF Animations - STRICT CHECK
+      // Check both MIME type and extension to be absolutely sure we don't compress a GIF
+      const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
+
+      if (isGif) {
         const reader = new FileReader();
         reader.readAsDataURL(file);
         reader.onload = (event) => {
+           // Direct return of raw data URL
            resolve(event.target?.result as string || '');
         };
         reader.onerror = (err) => reject(err);
