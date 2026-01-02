@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { Category, Forum, Thread, Post, User, Prefix, Role, Permissions, UserActivity } from '../types';
+import { Category, Forum, Thread, Post, User, Prefix, Role, Permissions, UserActivity, Notification } from '../types';
 import { db, initDB } from '../utils/db';
 import { mongo } from '../services/mongo';
+import { wsService } from '../services/websocket';
 import { APP_CONFIG } from '../config';
 import { ServerCrash, RotateCcw, WifiOff, Loader2 } from 'lucide-react';
 
@@ -277,8 +278,17 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
          const newThreads = await api.getThreads(forumId);
          if (Array.isArray(newThreads)) {
              setThreads(prev => {
-                const otherThreads = prev.filter(t => t.forumId !== forumId);
-                return [...otherThreads, ...newThreads];
+                // Merge threads intelligently - keep existing, update with new data
+                const threadMap = new Map(prev.map(t => [t.id, t]));
+                newThreads.forEach(t => threadMap.set(t.id, t));
+                const merged = Array.from(threadMap.values());
+                // Sort by pinned, order, then date
+                return merged.sort((a, b) => {
+                  if (a.isPinned && !b.isPinned) return -1;
+                  if (!a.isPinned && b.isPinned) return 1;
+                  if ((a.order || 0) !== (b.order || 0)) return (a.order || 0) - (b.order || 0);
+                  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                });
              });
              return newThreads;
          }
@@ -293,8 +303,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
          const newPosts = await api.getPosts(threadId);
          if (Array.isArray(newPosts)) {
              setPosts(prev => {
-                const others = prev.filter(p => p.threadId !== threadId);
-                return [...others, ...newPosts];
+                // Merge posts intelligently - keep existing, update with new data
+                const postMap = new Map(prev.map(p => [p.id, p]));
+                newPosts.forEach(p => postMap.set(p.id, p));
+                return Array.from(postMap.values()).sort((a, b) => (a.number || 0) - (b.number || 0));
              });
              return newPosts;
          }
@@ -332,6 +344,121 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           return [];
       } catch (e) { return []; }
   };
+
+  // WebSocket real-time updates
+  useEffect(() => {
+    if (!useMongo || isOffline) return;
+    
+    // Connect WebSocket when user is available
+    if (currentUser?.id) {
+      wsService.connect(currentUser.id);
+    } else {
+      wsService.connect(null);
+    }
+    
+    // Listen for notifications
+    const unsubNotification = wsService.on('notification', (notification: Notification) => {
+      if (currentUser && notification.userId === currentUser.id) {
+        setCurrentUser(prev => {
+          if (!prev) return prev;
+          const updated = { ...prev };
+          updated.notifications = [notification, ...(prev.notifications || [])].slice(0, 50);
+          return updated;
+        });
+      }
+    });
+    
+    // Listen for post updates
+    const unsubPost = wsService.on('post_update', (data: any) => {
+      if (data.type === 'post_created') {
+        setPosts(prev => {
+          const exists = prev.find(p => p.id === data.post.id);
+          if (exists) return prev;
+          // Add new post and sort by number
+          const updated = [...prev, data.post];
+          return updated.sort((a, b) => (a.number || 0) - (b.number || 0));
+        });
+        // Update thread reply count and lastPost
+        if (data.threadId) {
+          setThreads(prev => prev.map(t => 
+            t.id === data.threadId ? { 
+              ...t, 
+              replyCount: (t.replyCount || 0) + 1,
+              lastPost: data.post.lastPost || t.lastPost
+            } : t
+          ));
+          // Update forum stats
+          const thread = threads.find(t => t.id === data.threadId);
+          if (thread) {
+            setForums(prev => prev.map(f => 
+              f.id === thread.forumId ? {
+                ...f,
+                messageCount: (f.messageCount || 0) + 1,
+                lastPost: data.post.lastPost || f.lastPost
+              } : f
+            ));
+          }
+        }
+      } else if (data.type === 'post_updated') {
+        setPosts(prev => prev.map(p => p.id === data.post.id ? data.post : p));
+      } else if (data.type === 'post_deleted') {
+        setPosts(prev => prev.filter(p => p.id !== data.postId));
+        if (data.threadId) {
+          setThreads(prev => prev.map(t => 
+            t.id === data.threadId ? { ...t, replyCount: Math.max(0, (t.replyCount || 0) - 1) } : t
+          ));
+        }
+      }
+    });
+    
+    // Listen for thread updates
+    const unsubThread = wsService.on('thread_update', (data: any) => {
+      if (data.type === 'thread_created') {
+        setThreads(prev => {
+          const exists = prev.find(t => t.id === data.thread.id);
+          if (exists) return prev;
+          return [...prev, data.thread];
+        });
+      } else if (data.type === 'thread_updated') {
+        setThreads(prev => prev.map(t => t.id === data.thread.id ? data.thread : t));
+      } else if (data.type === 'thread_deleted') {
+        setThreads(prev => prev.filter(t => t.id !== data.threadId));
+        setPosts(prev => prev.filter(p => {
+          const thread = threads.find(t => t.id === data.threadId);
+          return thread ? p.threadId !== data.threadId : true;
+        }));
+      }
+    });
+    
+    // Listen for forum updates
+    const unsubForum = wsService.on('forum_update', (data: any) => {
+      if (data.type === 'forum_updated') {
+        setForums(prev => prev.map(f => f.id === data.forum.id ? data.forum : f));
+      } else if (data.type === 'forum_deleted') {
+        setForums(prev => prev.filter(f => f.id !== data.forumId));
+      }
+    });
+    
+    // Listen for user activity updates (lightweight, no DB queries)
+    const unsubActivity = wsService.on('user_activity', (data: any) => {
+      setUsers(prev => {
+        const user = prev[data.userId];
+        if (user) {
+          return { ...prev, [data.userId]: { ...user, currentActivity: data.activity } };
+        }
+        return prev;
+      });
+    });
+    
+    return () => {
+      unsubNotification();
+      unsubPost();
+      unsubThread();
+      unsubForum();
+      unsubActivity();
+      wsService.disconnect();
+    };
+  }, [currentUser?.id, useMongo, isOffline]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -479,11 +606,26 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (forum.isClosed && !hasPermission(currentUser, 'canManageForums')) throw new Error("Этот форум закрыт.");
     const tid = `t${Date.now()}`;
     const now = new Date().toISOString();
-    await mutationApi.addThread({ id: tid, forumId: fid, title, authorId: currentUser.id, createdAt: now, viewCount: 0, replyCount: 0, isLocked: false, isPinned: false, prefixId: pid, order: 0 });
-    await mutationApi.addPost({ id: `p${Date.now()}`, threadId: tid, authorId: currentUser.id, content, createdAt: now, likedBy: [], likes: 0, number: 1 });
+    const newThread = { id: tid, forumId: fid, title, authorId: currentUser.id, createdAt: now, viewCount: 0, replyCount: 0, isLocked: false, isPinned: false, prefixId: pid, order: 0 };
+    const newPost = { id: `p${Date.now()}`, threadId: tid, authorId: currentUser.id, content, createdAt: now, likedBy: [], likes: 0, number: 1 };
+    
+    // Optimistic update
+    setThreads(prev => [...prev, newThread]);
+    setPosts(prev => [...prev, newPost]);
+    setForums(prev => prev.map(f => f.id === fid ? {
+      ...f,
+      threadCount: (f.threadCount || 0) + 1,
+      messageCount: (f.messageCount || 0) + 1,
+      lastPost: { threadId: tid, threadTitle: title, authorId: currentUser.id, createdAt: now, prefixId: pid }
+    } : f));
+    
+    // Update in background
+    await mutationApi.addThread(newThread);
+    await mutationApi.addPost(newPost);
     await mutationApi.updateForum({ ...forum, threadCount: (forum.threadCount || 0) + 1, messageCount: (forum.messageCount || 0) + 1, lastPost: { threadId: tid, threadTitle: title, authorId: currentUser.id, createdAt: now, prefixId: pid } });
     updateUser({...currentUser, messages: currentUser.messages + 1, points: currentUser.points + 5});
-    // Reload threads for this forum to show the new one
+    
+    // Reload threads for this forum to show the new one (WebSocket will also update)
     await loadThreadsForForum(fid);
   });
 
@@ -536,12 +678,33 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (forum && forum.isClosed && !hasPermission(currentUser, 'canManageForums')) throw new Error("Форум закрыт.");
     if (thread.isLocked && !hasPermission(currentUser, 'canLockThreads')) throw new Error("Тема закрыта.");
     const now = new Date().toISOString();
-    await mutationApi.updateThread({ ...thread, replyCount: thread.replyCount + 1, lastPost: { authorId: currentUser.id, createdAt: now } });
     const pid = `p${Date.now()}`;
-    await mutationApi.addPost({ id: pid, threadId: tid, authorId: currentUser.id, content, createdAt: now, likedBy: [], likes: 0, number: (getPostsByThread(tid).length || 0) + 1 });
+    const postNumber = getPostsByThread(tid).length + 1;
+    const newPost = { id: pid, threadId: tid, authorId: currentUser.id, content, createdAt: now, likedBy: [], likes: 0, number: postNumber };
+    
+    // Optimistic update - show immediately
+    setPosts(prev => [...prev, newPost].sort((a, b) => (a.number || 0) - (b.number || 0)));
+    setThreads(prev => prev.map(t => t.id === tid ? {
+      ...t,
+      replyCount: (t.replyCount || 0) + 1,
+      lastPost: { authorId: currentUser.id, createdAt: now }
+    } : t));
+    if (forum) {
+      setForums(prev => prev.map(f => f.id === thread.forumId ? {
+        ...f,
+        messageCount: (f.messageCount || 0) + 1,
+        lastPost: { threadId: thread.id, threadTitle: thread.title, authorId: currentUser.id, createdAt: now, prefixId: thread.prefixId }
+      } : f));
+    }
+    
+    // Update in background (WebSocket will also sync)
+    await mutationApi.updateThread({ ...thread, replyCount: thread.replyCount + 1, lastPost: { authorId: currentUser.id, createdAt: now } });
+    await mutationApi.addPost(newPost);
     if (forum) await mutationApi.updateForum({ ...forum, messageCount: (forum.messageCount || 0) + 1, lastPost: { threadId: thread.id, threadTitle: thread.title, authorId: currentUser.id, createdAt: now, prefixId: thread.prefixId } });
     updateUser({...currentUser, messages: currentUser.messages + 1, points: currentUser.points + 2});
-    await loadPostsForThread(tid);
+    
+    // Notification is sent by server, but we can also send here for redundancy
+    // Server handles it in /posts POST endpoint
   });
 
   const editPost = async (pid: string, content: string) => {

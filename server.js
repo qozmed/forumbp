@@ -10,6 +10,8 @@ import helmet from 'helmet';
 import mongoSanitize from 'express-mongo-sanitize';
 import xss from 'xss';
 import compression from 'compression';
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
 
 dotenv.config();
 
@@ -17,6 +19,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const server = createServer(app);
 
 const PORT = process.env.PORT || 5001; 
 const HOST = '0.0.0.0'; 
@@ -585,22 +588,44 @@ api.post('/auth/verify-2fa', limitReq('auth'), handle(async (req, res) => {
 // --- SYSTEM ---
 api.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-api.post('/notifications/send', handle(async (req, res) => {
-    let { targetUserId, message, link } = req.body;
-    message = sanitizeString(message);
-    // Only fetch telegramId, not the whole user
+// Helper function to send notifications
+const sendNotification = async (targetUserId, message, link, type = 'system', origin = '') => {
+  if (!targetUserId) return;
+  
+  try {
     const targetUser = await User.findOne({ id: targetUserId }).select('telegramId').lean();
-    if (!targetUser) return res.status(404).json({ error: 'User not found' });
+    if (!targetUser) return;
 
-    const newNotif = { id: `n${Date.now()}`, userId: targetUserId, type: 'system', message, link, isRead: false, createdAt: new Date().toISOString() };
-    // Fire and forget update
+    const sanitizedMessage = sanitizeString(message);
+    const newNotif = { 
+      id: `n${Date.now()}`, 
+      userId: targetUserId, 
+      type, 
+      message: sanitizedMessage, 
+      link, 
+      isRead: false, 
+      createdAt: new Date().toISOString() 
+    };
+    
+    // Update user notifications
     User.updateOne({ id: targetUserId }, { $push: { notifications: { $each: [newNotif], $slice: -50, $position: 0 } } }).exec();
     
-    // Background Send via queue
+    // Send via WebSocket (real-time)
+    broadcastToUser(targetUserId, { type: 'notification', notification: newNotif });
+    
+    // Send via Telegram
     if (targetUser.telegramId && bot) {
-        const fullLink = req.get('origin') + (link.startsWith('/') ? link : `/${link}`);
-        queueTelegramMessage(targetUser.telegramId, `🔔 ${message.replace(/<[^>]*>?/gm, '')}\n\n👉 <a href="${fullLink}">Открыть</a>`, { parse_mode: 'HTML' });
+      const fullLink = origin + (link.startsWith('/') ? link : `/${link}`);
+      queueTelegramMessage(targetUser.telegramId, `🔔 ${sanitizedMessage.replace(/<[^>]*>?/gm, '')}\n\n👉 <a href="${fullLink}">Открыть</a>`, { parse_mode: 'HTML' });
     }
+  } catch (err) {
+    console.error('Error sending notification:', err.message);
+  }
+};
+
+api.post('/notifications/send', handle(async (req, res) => {
+    let { targetUserId, message, link } = req.body;
+    await sendNotification(targetUserId, message, link, 'system', req.get('origin') || '');
     res.json({ success: true });
 }));
 
@@ -662,6 +687,10 @@ api.get('/threads', handle(async (req, res) => {
 api.get('/threads/:id', handle(async (req, res) => {
   const thread = await Thread.findOne({ id: req.params.id }).lean();
   if (!thread) return res.status(404).json({ error: 'Thread not found' });
+  
+  // Increment view count (non-blocking)
+  Thread.updateOne({ id: req.params.id }, { $inc: { viewCount: 1 } }).exec();
+  
   res.json(thread);
 }));
 
@@ -690,6 +719,10 @@ const createCrud = (path, Model) => {
     if (['categories', 'forums', 'prefixes', 'roles'].includes(path)) {
       invalidateCache(path);
     }
+    // Broadcast creation for real-time updates
+    if (path === 'threads') {
+      broadcastToAll({ type: 'thread_created', thread: item });
+    }
     res.status(201).json(item);
   }));
   api.put(`/${path}/:id`, handle(async (req, res) => {
@@ -703,6 +736,12 @@ const createCrud = (path, Model) => {
     if (['categories', 'forums', 'prefixes', 'roles'].includes(path)) {
       invalidateCache(path);
     }
+    // Broadcast updates for real-time sync
+    if (path === 'threads') {
+      broadcastToAll({ type: 'thread_updated', thread: item });
+    } else if (path === 'forums') {
+      broadcastToAll({ type: 'forum_updated', forum: item });
+    }
     res.json(item);
   }));
   api.delete(`/${path}/:id`, handle(async (req, res) => {
@@ -710,6 +749,12 @@ const createCrud = (path, Model) => {
     // Invalidate cache for static data
     if (['categories', 'forums', 'prefixes', 'roles'].includes(path)) {
       invalidateCache(path);
+    }
+    // Broadcast deletion
+    if (path === 'threads') {
+      broadcastToAll({ type: 'thread_deleted', threadId: req.params.id });
+    } else if (path === 'forums') {
+      broadcastToAll({ type: 'forum_deleted', forumId: req.params.id });
     }
     res.json({ success: true });
   }));
@@ -760,7 +805,12 @@ api.put('/roles/:id', handle(async (req, res) => {
 }));
 
 api.put('/users/:id/activity', handle(async (req, res) => {
-  await User.updateOne({ id: req.params.id }, { lastActiveAt: new Date().toISOString(), currentActivity: { ...req.body.activity, timestamp: new Date().toISOString() } });
+  const update = { lastActiveAt: new Date().toISOString(), currentActivity: { ...req.body.activity, timestamp: new Date().toISOString() } };
+  await User.updateOne({ id: req.params.id }, update);
+  
+  // Broadcast activity update (lightweight, no DB query)
+  broadcastToAll({ type: 'user_activity', userId: req.params.id, activity: update.currentActivity });
+  
   res.json({ success: true });
 }));
 
@@ -768,9 +818,84 @@ createCrud('users', User);
 createCrud('categories', Category);
 createCrud('forums', Forum); 
 createCrud('threads', Thread);
-createCrud('posts', Post);
 createCrud('prefixes', Prefix);
 createCrud('roles', Role);
+
+// Custom Posts CRUD with notifications and real-time updates
+api.post('/posts', handle(async (req, res) => {
+  if (!req.body.id) req.body.id = `p${Date.now()}`;
+  if (req.body.content) req.body.content = xss(req.body.content, { whiteList: {}, stripIgnoreTag: false, stripIgnoreTagBody: ['script'] });
+  const post = await Post.create(req.body);
+  
+  // Get thread and author info for notifications
+  const thread = await Thread.findOne({ id: post.threadId }).lean();
+  const author = await User.findOne({ id: post.authorId }).select('username').lean();
+  
+  if (thread && author) {
+    // Notify thread author if it's a reply (not the first post)
+    if (post.number > 1 && thread.authorId !== post.authorId) {
+      await sendNotification(
+        thread.authorId,
+        `<b>${author.username}</b> ответил в теме "${thread.title}"`,
+        `/thread/${thread.id}#post-${post.id}`,
+        'reply',
+        req.get('origin') || ''
+      );
+    }
+    
+    // Broadcast new post to all connected clients
+    broadcastToAll({ type: 'post_created', post, threadId: post.threadId });
+  }
+  
+  res.status(201).json(post);
+}));
+
+api.put('/posts/:id', handle(async (req, res) => {
+  if (req.body.content) req.body.content = xss(req.body.content, { whiteList: {}, stripIgnoreTag: false, stripIgnoreTagBody: ['script'] });
+  
+  // Check if likes changed
+  const oldPost = await Post.findOne({ id: req.params.id }).lean();
+  const newLikedBy = req.body.likedBy || oldPost?.likedBy || [];
+  const oldLikedBy = oldPost?.likedBy || [];
+  
+  const item = await Post.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true }).lean();
+  
+  // If likes changed, send notification to post author
+  if (oldPost && newLikedBy.length > oldLikedBy.length && oldPost.authorId) {
+    const likerId = newLikedBy.find(id => !oldLikedBy.includes(id));
+    if (likerId && likerId !== oldPost.authorId) {
+      const liker = await User.findOne({ id: likerId }).select('username').lean();
+      const thread = await Thread.findOne({ id: oldPost.threadId }).select('title').lean();
+      
+      if (liker && thread) {
+        await sendNotification(
+          oldPost.authorId,
+          `<b>${liker.username}</b> поставил лайк вашему сообщению в теме "${thread.title}"`,
+          `/thread/${oldPost.threadId}#post-${oldPost.id}`,
+          'system',
+          req.get('origin') || ''
+        );
+      }
+    }
+  }
+  
+  // Broadcast post update
+  broadcastToAll({ type: 'post_updated', post: item, threadId: item.threadId });
+  
+  res.json(item);
+}));
+
+api.delete('/posts/:id', handle(async (req, res) => {
+  const post = await Post.findOne({ id: req.params.id }).lean();
+  await Post.deleteOne({ id: req.params.id });
+  
+  // Broadcast post deletion
+  if (post) {
+    broadcastToAll({ type: 'post_deleted', postId: req.params.id, threadId: post.threadId });
+  }
+  
+  res.json({ success: true });
+}));
 
 // 404 For API
 api.use((req, res) => res.status(404).json({ error: 'API route not found' }));
@@ -783,6 +908,87 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, HOST, () => {
+// ==========================================
+// WEBSOCKET SERVER FOR REAL-TIME UPDATES
+// ==========================================
+const wss = new WebSocketServer({ server, path: '/ws' });
+const clients = new Map(); // userId -> Set of WebSocket connections
+
+wss.on('connection', (ws, req) => {
+  let userId = null;
+  let pingInterval = null;
+
+  ws.on('message', async (message) => {
+    try {
+      const data = JSON.parse(message.toString());
+      
+      if (data.type === 'auth' && data.userId) {
+        userId = data.userId;
+        if (!clients.has(userId)) {
+          clients.set(userId, new Set());
+        }
+        clients.get(userId).add(ws);
+        console.log(`[WS] User ${userId} connected`);
+        
+        // Send confirmation
+        ws.send(JSON.stringify({ type: 'connected', userId }));
+        
+        // Start ping interval
+        pingInterval = setInterval(() => {
+          if (ws.readyState === ws.OPEN) {
+            ws.ping();
+          }
+        }, 30000);
+      } else if (data.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }));
+      }
+    } catch (err) {
+      console.error('[WS] Message error:', err.message);
+    }
+  });
+
+  ws.on('close', () => {
+    if (userId && clients.has(userId)) {
+      clients.get(userId).delete(ws);
+      if (clients.get(userId).size === 0) {
+        clients.delete(userId);
+      }
+    }
+    if (pingInterval) clearInterval(pingInterval);
+    console.log(`[WS] User ${userId || 'unknown'} disconnected`);
+  });
+
+  ws.on('error', (error) => {
+    console.error('[WS] Error:', error.message);
+  });
+});
+
+// Broadcast function to send updates to specific users
+const broadcastToUser = (userId, data) => {
+  if (clients.has(userId)) {
+    const userClients = clients.get(userId);
+    const message = JSON.stringify(data);
+    userClients.forEach(ws => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(message);
+      }
+    });
+  }
+};
+
+// Broadcast to all connected clients (for public updates)
+const broadcastToAll = (data) => {
+  const message = JSON.stringify(data);
+  clients.forEach((userClients) => {
+    userClients.forEach(ws => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(message);
+      }
+    });
+  });
+};
+
+server.listen(PORT, HOST, () => {
   console.log(`🚀 SERVER RUNNING ON PORT ${PORT}`);
+  console.log(`🔌 WebSocket server ready on ws://${HOST}:${PORT}/ws`);
 });
