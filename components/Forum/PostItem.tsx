@@ -34,15 +34,19 @@ const PostItem: React.FC<Props> = ({ post }) => {
     alert(t('alert.copyCode') + (codeMatch ? t('alert.template') : ''));
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = () => {
     if (!editContent.trim()) return;
-    try {
-      await editPost(post.id, editContent);
-      setIsEditing(false);
-    } catch (e) {
+    
+    // OPTIMISTIC UPDATE: Close editor immediately
+    setIsEditing(false);
+    
+    // Send request in background
+    editPost(post.id, editContent).catch((e) => {
       console.error(e);
       alert(t('alert.updateFail'));
-    }
+      // Re-open editor on fail
+      setIsEditing(true);
+    });
   };
 
   const handleDelete = async () => {

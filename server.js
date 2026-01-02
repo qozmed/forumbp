@@ -6,10 +6,11 @@ import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import TelegramBot from 'node-telegram-bot-api';
-// SECURITY PACKAGES
+// SECURITY & PERFORMANCE PACKAGES
 import helmet from 'helmet';
 import mongoSanitize from 'express-mongo-sanitize';
 import xss from 'xss';
+import compression from 'compression';
 
 dotenv.config();
 
@@ -25,34 +26,36 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/blackproje
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 // ==========================================
-// SECURITY CONFIGURATION
+// SECURITY & PERFORMANCE CONFIGURATION
 // ==========================================
 
-// 1. HELMET: Sets secure HTTP headers (X-Frame-Options, HSTS, CSP, etc.)
+// 1. HELMET: Sets secure HTTP headers
 app.use(helmet({
-  contentSecurityPolicy: false, // Disabled for simplicity with external images/CDN, enable in strict Prod
+  contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
 }));
 
-// 2. CORS: Strict Origin
+// 2. COMPRESSION: Gzip response bodies
+app.use(compression());
+
+// 3. CORS
 app.use(cors({
-  origin: process.env.CLIENT_URL || '*', // In Prod, set this to exact domain
+  origin: process.env.CLIENT_URL || '*', 
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   credentials: true
 }));
 
-// 3. BODY PARSING & SANITIZATION
-app.use(express.json({ limit: '10mb' })); // Limit body size to prevent DoS
+// 4. BODY PARSING
+app.use(express.json({ limit: '10mb' }));
 
-// 4. MONGO SANITIZE: Removes '$' and '.' from input to prevent NoSQL Injection
+// 5. MONGO SANITIZE
 app.use(mongoSanitize());
 
-// 5. CUSTOM RATE LIMITER (Enhanced)
+// 6. CUSTOM RATE LIMITER (Optimized)
 const rateLimits = {
-  // Increased general limit to prevent UI lag feeling during rapid actions
-  general: { window: 60 * 1000, max: 500 }, 
-  auth: { window: 15 * 60 * 1000, max: 20 } 
+  general: { window: 60 * 1000, max: 1000 }, // Increased to prevent lag during rapid user actions
+  auth: { window: 15 * 60 * 1000, max: 50 } 
 };
 
 const ipTrackers = {
@@ -66,9 +69,8 @@ const getClientIp = (req) => {
   return req.socket.remoteAddress;
 };
 
-// Rate Limiter Middleware Factory
 const limitReq = (type) => (req, res, next) => {
-  if (req.method === 'OPTIONS') return next(); // Skip preflight
+  if (req.method === 'OPTIONS') return next(); 
   
   const ip = getClientIp(req);
   const now = Date.now();
@@ -85,14 +87,13 @@ const limitReq = (type) => (req, res, next) => {
     } else {
       data.count++;
       if (data.count > rule.max) {
-        return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+        return res.status(429).json({ error: 'Too many requests' });
       }
     }
   }
   next();
 };
 
-// Garbage Collection for Rate Limiter
 setInterval(() => {
   const now = Date.now();
   ['general', 'auth'].forEach(type => {
@@ -102,18 +103,14 @@ setInterval(() => {
   });
 }, 60000);
 
-// Apply General Limit Globally
 app.use(limitReq('general'));
 
-// 6. XSS SANITIZATION HELPER
-// We don't use strict XSS middleware globally because it breaks BBCode.
-// Instead, we explicitly sanitize specific fields in routes.
 const sanitizeString = (str) => {
   if (typeof str !== 'string') return str;
   return xss(str, {
-    whiteList: {}, // Strip ALL tags for critical fields (username, email)
+    whiteList: {}, 
     stripIgnoreTag: true,
-    stripIgnoreTagBody: ['script'] // Aggressively remove script tags
+    stripIgnoreTagBody: ['script']
   });
 };
 
@@ -124,6 +121,16 @@ let bot = null;
 if (TELEGRAM_TOKEN) {
   try {
     bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+    
+    // Suppress Polling Errors (Conflict 409)
+    bot.on('polling_error', (error) => {
+      if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
+         // Silently ignore conflict errors in dev
+         return;
+      }
+      console.error('Telegram Polling Error:', error.message);
+    });
+
     console.log('🤖 Telegram Bot Started');
 
     bot.onText(/\/start (.+)/, async (msg, match) => {
@@ -133,7 +140,6 @@ if (TELEGRAM_TOKEN) {
         if (!token) return;
 
         try {
-            // Find user pending connection
             const user = await User.findOne({ connectToken: token });
             if (user) {
                 user.telegramId = chatId.toString();
@@ -161,7 +167,8 @@ const connectDB = async () => {
       serverSelectionTimeoutMS: 5000,
       family: 4,
       dbName: 'blackproject',
-      autoIndex: true 
+      autoIndex: true, // Auto-build indexes
+      maxPoolSize: 10 // Efficient connection pooling
     });
     console.log('✅ [DB] Connected');
   } catch (err) {
@@ -172,7 +179,6 @@ connectDB();
 
 const BaseOpts = { versionKey: false };
 
-// Models with Performance Indexes
 const User = mongoose.model('User', new mongoose.Schema({
   id: { type: String, unique: true, required: true, index: true },
   username: { type: String, required: true },
@@ -303,12 +309,9 @@ const handle = (fn) => async (req, res, next) => {
 // ROUTES
 // ==========================================
 
-// AUTH
 app.post('/api/auth/register', limitReq('auth'), handle(async (req, res) => {
   let { username, email, password } = req.body;
   const ip = getClientIp(req);
-
-  // SANITIZE
   username = sanitizeString(username);
   email = sanitizeString(email);
 
@@ -342,7 +345,6 @@ app.post('/api/auth/register', limitReq('auth'), handle(async (req, res) => {
 app.post('/api/auth/login', limitReq('auth'), handle(async (req, res) => {
   let { email, password } = req.body; 
   email = sanitizeString(email);
-  
   const ip = getClientIp(req);
 
   const user = await User.findOne({ email }).select('+hash +salt +ipHistory +telegramId +twoFactorEnabled');
@@ -368,7 +370,6 @@ app.post('/api/auth/login', limitReq('auth'), handle(async (req, res) => {
       }
   }
 
-  // Update IP History
   if (!user.ipHistory) user.ipHistory = [];
   user.ipHistory.unshift(ip);
   if (user.ipHistory.length > 20) user.ipHistory = user.ipHistory.slice(0, 20);
@@ -389,7 +390,6 @@ app.post('/api/auth/verify-2fa', limitReq('auth'), handle(async (req, res) => {
     
     if (!user) return res.status(404).json({ error: 'User not found' });
     
-    // Strict string comparison
     if (!user.tempCode || String(user.tempCode) !== String(code)) {
         return res.status(400).json({ error: 'Invalid code' });
     }
@@ -409,7 +409,6 @@ app.post('/api/auth/verify-2fa', limitReq('auth'), handle(async (req, res) => {
     res.json(u);
 }));
 
-// TELEGRAM LINK
 app.post('/api/user/telegram-link', handle(async (req, res) => {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
@@ -426,7 +425,6 @@ app.post('/api/user/telegram-link', handle(async (req, res) => {
     res.json({ link });
 }));
 
-// NOTIFICATIONS
 app.post('/api/notifications/send', handle(async (req, res) => {
     let { targetUserId, message, link } = req.body;
     message = sanitizeString(message);
@@ -456,7 +454,6 @@ app.post('/api/notifications/send', handle(async (req, res) => {
     res.json({ success: true });
 }));
 
-// BROADCAST (ADMIN ONLY)
 app.post('/api/admin/broadcast', handle(async (req, res) => {
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: 'Text required' });
@@ -476,7 +473,6 @@ app.post('/api/admin/broadcast', handle(async (req, res) => {
     res.json({ sent: sentCount, total: usersWithTg.length });
 }));
 
-// DATA FETCHING (USE .lean() FOR PERFORMANCE)
 app.get('/api/forums', handle(async (req, res) => {
   const forums = await Forum.find().sort({ order: 1 }).lean();
   res.json(forums);
@@ -516,7 +512,6 @@ app.get('/api/posts', handle(async (req, res) => {
   res.json(items);
 }));
 
-// CRUD GENERATOR
 const createCrud = (path, Model) => {
   if (!['forums', 'threads', 'posts', 'users'].includes(path)) {
     app.get(`/api/${path}`, handle(async (req, res) => {
