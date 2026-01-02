@@ -89,6 +89,9 @@ interface ForumContextType {
   loadThread: (threadId: string) => Promise<Thread | null>; 
   loadUserPosts: (userId: string) => Promise<Post[]>;
   getTelegramLink: (userId: string) => Promise<string>;
+  
+  // API Direct Access
+  loadUser: (userId: string) => Promise<User | null>;
 }
 
 const ForumContext = createContext<ForumContextType | undefined>(undefined);
@@ -141,16 +144,14 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     try {
       if (initial) setLoading(true);
       
-      // OPTIMIZATION: Removed blocking checkHealth call. 
-      // If DB is down, fetches will fail naturally.
       if (!useMongo || effectiveOffline) {
         initDB();
       }
 
       const api = getApi(effectiveOffline);
       
-      // 1. CRITICAL DATA FETCH (PARALLEL)
-      // We start fetching everything we need to render the initial UI immediately.
+      // PHASE 1: CRITICAL DATA (Categories, Forums, Configs, CURRENT SESSION)
+      // This must load fast for the app to be usable.
       const configPromise = Promise.all([
         api.getCategories(),
         api.getForums(),
@@ -158,11 +159,19 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         api.getRoles()
       ]);
 
-      // 2. SESSION USER FETCH
+      // Handle Session Restore Robustly
       const sid = api.getSession();
-      const userPromise = sid ? api.getUserSync(sid).catch(() => null) : Promise.resolve(null);
+      let userPromise: Promise<User | null> = Promise.resolve(null);
+      
+      if (sid) {
+          userPromise = api.getUserSync(sid).catch((err) => {
+              console.warn("Session restore failed:", err);
+              api.clearSession(); // Invalid token
+              return null;
+          });
+      }
 
-      // Wait for CRITICAL data only
+      // Wait for CRITICAL data
       // @ts-ignore
       const [[c, f, px, r], myself] = await Promise.all([configPromise, userPromise]);
 
@@ -174,37 +183,42 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       if (myself) {
           setCurrentUser(myself);
           mergeUsers([myself]);
-      } else if (sid) {
-          api.clearSession();
+      } else {
           setCurrentUser(null);
       }
 
-      // APP IS NOW READY TO RENDER
+      // APP IS NOW READY - RENDER IMMEDIATELY
       setFatalError(null);
       if (initial) {
           setIsReady(true);
           setLoading(false);
       }
 
-      // 3. BACKGROUND FETCH (NON-BLOCKING)
-      // Fetch dynamic content like active users and recent threads silently
-      // This prevents the "Loading..." screen from staying up too long
-      (async () => {
+      // PHASE 2: BACKGROUND DATA (All Users, Recent Threads)
+      // This loads silently. If it fails or is slow, it doesn't block the UI.
+      setTimeout(async () => {
           if (!isMounted.current) return;
           try {
-              const [activeUsers, recentThreads] = await Promise.all([
-                  api.getUsers(), // Limits to 500 sorted users
-                  api.getThreads(undefined, 10)
-              ]);
-              
-              if (isMounted.current) {
-                  if (activeUsers) mergeUsers(activeUsers);
-                  if (Array.isArray(recentThreads)) setThreads(recentThreads);
+              // Fetch recent threads to populate home/activity
+              const recentThreads = await api.getThreads(undefined, 20).catch(() => []);
+              if (isMounted.current && Array.isArray(recentThreads)) {
+                   setThreads(prev => {
+                       // Simple merge
+                       const map = new Map(prev.map(t => [t.id, t]));
+                       recentThreads.forEach(t => map.set(t.id, t));
+                       return Array.from(map.values());
+                   });
+              }
+
+              // Fetch users (Limit 500)
+              const activeUsers = await api.getUsers().catch(() => ({})); 
+              if (isMounted.current && activeUsers) {
+                  mergeUsers(activeUsers);
               }
           } catch (e) { 
-              console.warn("Background data fetch warning:", e); 
+              console.warn("Background fetch warning:", e); 
           }
-      })();
+      }, 100);
 
     } catch (e: any) {
       if (initial && !effectiveOffline) {
@@ -227,6 +241,22 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           }
       } catch (e) {
           console.error("Failed to refresh user data", e);
+      }
+  };
+
+  // Direct loader for profile pages to avoid "eternal loading" if user isn't in top 500
+  const loadUser = async (userId: string): Promise<User | null> => {
+      // Check cache first
+      if (users[userId]) return users[userId];
+      
+      try {
+          const api = getApi(isOffline);
+          // @ts-ignore
+          const user = await api.getUserSync(userId);
+          if (user) mergeUsers([user]);
+          return user;
+      } catch (e) {
+          return null;
       }
   };
 
@@ -256,9 +286,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 const others = prev.filter(p => p.threadId !== threadId);
                 return [...others, ...newPosts];
              });
-             
-             // Check if we need to fetch missing authors
-             // In a real app we'd bulk fetch IDs, here we rely on background sync
              return newPosts;
          }
          return [];
@@ -342,7 +369,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const search = (query: string) => {
     const q = (query || '').toLowerCase();
-    // Search only currently loaded data
     return { 
       threads: threads.filter(t => (t.title || '').toLowerCase().includes(q)), 
       posts: posts.filter(p => (p.content || '').toLowerCase().includes(q)) 
@@ -380,18 +406,20 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
        }
        const user = response as User;
        if (user.isBanned) throw new Error("Пользователь забанен");
+       
+       // SET SESSION FIRST to ensure persistence
+       mongo.setSession(user.id);
        setCurrentUser(user);
        mergeUsers([user]);
-       mongo.setSession(user.id);
     }
   };
 
   const verify2FA = async (userId: string, code: string) => {
       const user = await mongo.verify2FA(userId, code);
       if (user.isBanned) throw new Error("Пользователь забанен");
+      mongo.setSession(user.id);
       setCurrentUser(user);
       mergeUsers([user]);
-      mongo.setSession(user.id);
   };
 
   const register = async (u: string, e: string, p?: string) => {
@@ -422,7 +450,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const updateUserActivity = async (activity: UserActivity) => {
     if (!currentUser) return;
     const now = Date.now();
-    // Throttling: Only update activity every 30s max
     if (currentUser.currentActivity?.type === activity.type && (now - lastActivityUpdate.current < 30000)) return;
     lastActivityUpdate.current = now;
     try {
@@ -661,7 +688,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       adminCreateForum, adminUpdateForum, adminMoveForum, adminDeleteForum, adminUpdateUserRole,
       adminMoveThread, adminReorderThread,
       adminCreatePrefix, adminDeletePrefix, adminCreateRole, adminUpdateRole, adminDeleteRole, adminSetDefaultRole, adminBroadcast, search,
-      loadThreadsForForum, loadPostsForThread, loadUserPosts, loadThread
+      loadThreadsForForum, loadPostsForThread, loadUserPosts, loadThread, loadUser
     }}>
       {isOffline && (
          <div className="fixed bottom-4 right-4 z-50 bg-yellow-900/90 backdrop-blur text-white px-4 py-3 rounded-lg shadow-2xl border border-yellow-500 flex items-center gap-3 animate-pulse">

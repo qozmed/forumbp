@@ -1,17 +1,41 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
 import { formatDate, timeAgo } from '../utils/date';
 import { parseBBCodeToHtml } from '../utils/bbCodeParser';
-import { MessageSquare, Trophy, Calendar, User, Clock, Hash, Ban, Lock, Activity } from 'lucide-react';
+import { MessageSquare, Trophy, Calendar, User, Clock, Hash, Ban, Lock, Activity, Loader2 } from 'lucide-react';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import RoleBadge from '../components/UI/RoleBadge';
+import { User as UserType } from '../types';
 
 const UserProfile: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getUser, getPostsByUser, getThread, getUserRoles, currentUser, banUser, hasPermission } = useForum();
+  const { getUser, getPostsByUser, getThread, getUserRoles, currentUser, banUser, hasPermission, loadUser } = useForum();
   const { t, language } = useLanguage();
+
+  const [localUser, setLocalUser] = useState<UserType | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+
+  // FETCH USER IF NOT IN CONTEXT
+  useEffect(() => {
+    if (!id) return;
+    
+    // Check if user is already in global state
+    const cached = getUser(id);
+    if (cached) {
+        setLocalUser(cached);
+        setLoading(false);
+        return;
+    }
+
+    // Not found? Load explicitly
+    setLoading(true);
+    loadUser(id).then(u => {
+        if (u) setLocalUser(u);
+        setLoading(false);
+    });
+  }, [id, getUser, loadUser]);
 
   // ACCESS CHECK: Guests cannot view profiles
   if (!currentUser) {
@@ -26,12 +50,20 @@ const UserProfile: React.FC = () => {
      );
   }
 
-  const user = id ? getUser(id) : undefined;
+  if (loading) {
+     return (
+        <div className="flex flex-col items-center justify-center py-32 text-white animate-fade-in">
+           <Loader2 className="w-12 h-12 animate-spin text-cyan-500 mb-4" />
+           <p className="text-gray-400">Загрузка профиля...</p>
+        </div>
+     );
+  }
   
-  if (!user) {
+  if (!localUser) {
     return <div className="text-center text-white py-20">User not found</div>;
   }
 
+  const user = localUser;
   const roles = getUserRoles(user);
   const userPosts = getPostsByUser(user.id);
   const recentPosts = userPosts.slice(0, 10); // Show last 10 posts
