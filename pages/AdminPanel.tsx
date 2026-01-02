@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
 import { User, Permissions, Forum, Category, Role } from '../types';
-import { Shield, FolderPlus, MessageSquarePlus, Trash2, Tag, ChevronRight, CornerDownRight, Edit2, X, ArrowUp, ArrowDown, Activity, Users, MessageCircle, Lock, Pencil, Check, Move } from 'lucide-react';
+import { Shield, FolderPlus, MessageSquarePlus, Trash2, Tag, ChevronRight, CornerDownRight, Edit2, X, ArrowUp, ArrowDown, Activity, Users, MessageCircle, Lock, Pencil, Check, Move, Send } from 'lucide-react';
 import { Navigate, Link } from 'react-router-dom';
 import PrefixBadge from '../components/UI/PrefixBadge';
 import { ROLE_EFFECTS } from '../constants';
@@ -15,10 +15,10 @@ const AdminPanel: React.FC = () => {
     adminCreateForum, adminUpdateForum, adminMoveForum, adminDeleteForum,
     adminUpdateUserRole, adminCreatePrefix, adminDeletePrefix,
     adminCreateRole, adminUpdateRole, adminDeleteRole, adminSetDefaultRole, hasPermission, banUser,
-    adminMoveThread, adminReorderThread, deleteThread
+    adminMoveThread, adminReorderThread, deleteThread, adminBroadcast
   } = useForum();
   const { t } = useLanguage();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'forums' | 'threads' | 'users' | 'prefixes' | 'roles'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'forums' | 'threads' | 'users' | 'prefixes' | 'roles' | 'broadcast'>('dashboard');
 
   // Refs for scrolling
   const roleFormRef = useRef<HTMLDivElement>(null);
@@ -44,6 +44,10 @@ const AdminPanel: React.FC = () => {
   const [prefixText, setPrefixText] = useState('');
   const [prefixColor, setPrefixColor] = useState('#ffffff');
 
+  // Broadcast Form
+  const [broadcastText, setBroadcastText] = useState('');
+  const [broadcastSending, setBroadcastSending] = useState(false);
+
   // Role Form
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [roleName, setRoleName] = useState('');
@@ -55,6 +59,8 @@ const AdminPanel: React.FC = () => {
     
     canViewAdminDashboard: true, canViewAdminUsers: false, canViewAdminForums: false, canViewAdminThreads: false,
     canViewAdminRoles: false, canViewAdminPrefixes: false,
+
+    canSendBroadcasts: false, // NEW
 
     canCreateThread: true, canReply: true, canUseRichText: true, canUploadImages: false,
     canLockThreads: false, canPinThreads: false, canDeleteOwnThreads: true, canDeleteAnyThread: false, 
@@ -104,7 +110,6 @@ const AdminPanel: React.FC = () => {
       }
       
       setForumName(''); setForumDesc(''); setIsForumClosed(false);
-      // Keep parent selection for convenience if not editing
       if (editingItem) setSelectedParentId('');
     }
   };
@@ -121,7 +126,6 @@ const AdminPanel: React.FC = () => {
     e.preventDefault();
     if (roleName) {
       if (editingRole) {
-        // Update existing role
         await adminUpdateRole({
           ...editingRole,
           name: roleName,
@@ -131,9 +135,8 @@ const AdminPanel: React.FC = () => {
         });
         cancelEditRole();
       } else {
-        // Create new role
         await adminCreateRole(roleName, roleColor, permissions, roleEffect);
-        cancelEditRole(); // Reset form
+        cancelEditRole(); 
       }
     }
   };
@@ -144,6 +147,23 @@ const AdminPanel: React.FC = () => {
         setMoveThreadId(null);
         setTargetForumId('');
     }
+  };
+
+  const handleBroadcast = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if(!broadcastText.trim()) return;
+      if(!window.confirm("Отправить это сообщение всем пользователям, привязавшим Telegram?")) return;
+
+      setBroadcastSending(true);
+      try {
+          const res = await adminBroadcast(broadcastText);
+          alert(`Отправлено: ${res.sent} из ${res.total}`);
+          setBroadcastText('');
+      } catch (e) {
+          alert('Ошибка отправки');
+      } finally {
+          setBroadcastSending(false);
+      }
   };
 
   // --- EDIT HELPERS ---
@@ -184,10 +204,7 @@ const AdminPanel: React.FC = () => {
     setRoleName(r.name);
     setRoleColor(r.color);
     setRoleEffect(r.effect || '');
-    // Merge with initial permissions to ensure new permission keys are present even if role data is old
     setPermissions({ ...initialPermissions, ...r.permissions });
-    
-    // Scroll form into view
     roleFormRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
@@ -201,20 +218,17 @@ const AdminPanel: React.FC = () => {
 
   const togglePermission = (perm: keyof Permissions) => setPermissions(prev => ({ ...prev, [perm]: !prev[perm] }));
 
-  // Helper to filter threads for the threads tab
   const getFilteredThreads = () => {
      let filtered = threads;
      if (selectedForumForThreads) {
          filtered = filtered.filter(t => t.forumId === selectedForumForThreads);
      }
-     // Sort by order and then date, matching the ForumView logic
      return filtered.sort((a,b) => {
          if ((a.order || 0) !== (b.order || 0)) return (a.order || 0) - (b.order || 0);
          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
      });
   };
 
-  // --- TAB PERMISSION CHECKER ---
   const canShowTab = (tab: string) => {
      switch(tab) {
          case 'dashboard': return hasPermission(currentUser, 'canViewAdminDashboard');
@@ -223,6 +237,7 @@ const AdminPanel: React.FC = () => {
          case 'users': return hasPermission(currentUser, 'canViewAdminUsers');
          case 'prefixes': return hasPermission(currentUser, 'canViewAdminPrefixes');
          case 'roles': return hasPermission(currentUser, 'canViewAdminRoles');
+         case 'broadcast': return hasPermission(currentUser, 'canViewAdminDashboard'); // Limited to dashboard perm for now
          default: return false;
      }
   };
@@ -274,7 +289,7 @@ const AdminPanel: React.FC = () => {
       </h1>
 
       <div className="flex gap-4 mb-8 border-b border-gray-700 pb-1 overflow-x-auto">
-        {['dashboard', 'forums', 'threads', 'users', 'prefixes', 'roles'].map(tab => {
+        {['dashboard', 'forums', 'threads', 'users', 'prefixes', 'roles', 'broadcast'].map(tab => {
            if (!canShowTab(tab)) return null;
            return (
              <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-4 py-2 font-medium capitalize flex items-center gap-2 ${activeTab === tab ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white'}`}>
@@ -340,6 +355,31 @@ const AdminPanel: React.FC = () => {
                 </div>
              </div>
          </div>
+      )}
+
+      {activeTab === 'broadcast' && hasPermission(currentUser, 'canViewAdminDashboard') && (
+          <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 max-w-2xl mx-auto">
+              <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                  <Send className="w-6 h-6 text-blue-400" /> Глобальная рассылка
+              </h3>
+              <p className="text-sm text-gray-400 mb-6">Это сообщение будет отправлено в личные сообщения Telegram всем пользователям, привязавшим свой аккаунт.</p>
+              
+              <form onSubmit={handleBroadcast}>
+                  <textarea 
+                      value={broadcastText}
+                      onChange={(e) => setBroadcastText(e.target.value)}
+                      className="w-full h-40 bg-gray-900 border border-gray-600 rounded p-3 text-white mb-4 focus:border-blue-500 outline-none"
+                      placeholder="Введите текст новости (Поддерживается HTML)..."
+                  />
+                  <button 
+                      type="submit" 
+                      disabled={broadcastSending || !broadcastText}
+                      className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded disabled:opacity-50"
+                  >
+                      {broadcastSending ? 'Отправка...' : 'Отправить всем'}
+                  </button>
+              </form>
+          </div>
       )}
 
       {activeTab === 'forums' && hasPermission(currentUser, 'canViewAdminForums') && (
@@ -421,10 +461,8 @@ const AdminPanel: React.FC = () => {
                {categories.map((c, idx) => {
                   return (
                     <div key={c.id} className="bg-gray-900 rounded border border-gray-700 overflow-hidden">
-                       {/* Category Header */}
                        <div className="p-2 bg-gray-750 border-b border-gray-700 flex justify-between items-center group">
                           <div className="flex items-center gap-2">
-                             {/* Ordering Arrows */}
                              {hasPermission(currentUser, 'canManageCategories') && (
                                  <div className="flex flex-col">
                                     <button onClick={() => adminMoveCategory(c.id, 'up')} disabled={idx === 0} className="text-gray-500 hover:text-white disabled:opacity-30">
@@ -446,7 +484,6 @@ const AdminPanel: React.FC = () => {
                           )}
                        </div>
                        
-                       {/* Forums List (Recursive) */}
                        {renderForumList(undefined, c.id)}
                     </div>
                   );

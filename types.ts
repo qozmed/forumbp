@@ -6,12 +6,15 @@ export interface Permissions {
   canSearch: boolean;
   
   // Admin Sections (Granular)
-  canViewAdminDashboard: boolean; // NEW
-  canViewAdminUsers: boolean;     // NEW
-  canViewAdminForums: boolean;    // NEW
-  canViewAdminThreads: boolean;   // NEW
-  canViewAdminRoles: boolean;     // NEW
-  canViewAdminPrefixes: boolean;  // NEW
+  canViewAdminDashboard: boolean;
+  canViewAdminUsers: boolean;
+  canViewAdminForums: boolean;
+  canViewAdminThreads: boolean;
+  canViewAdminRoles: boolean;
+  canViewAdminPrefixes: boolean;
+
+  // System Features
+  canSendBroadcasts: boolean; // NEW: Global notification capability
 
   // Thread Creation & Interaction
   canCreateThread: boolean;
@@ -119,8 +122,10 @@ export interface User {
   // Settings Cooldowns
   lastUsernameChange?: string; // ISO Date string
 
-  // Security
+  // Security & Telegram
   ipHistory?: string[];
+  telegramId?: string;       // Linked Telegram Chat ID
+  twoFactorEnabled?: boolean; // Is 2FA active?
 }
 
 export interface Post {

@@ -18,7 +18,7 @@ const simpleHash = (str: string) => {
 interface ForumContextType {
   categories: Category[];
   forums: Forum[];
-  threads: Thread[]; // Cached threads
+  threads: Thread[]; 
   posts: Post[];
   prefixes: Prefix[];
   roles: Role[];
@@ -38,9 +38,14 @@ interface ForumContextType {
   getUserRole: (user: User) => Role | undefined; 
   getUserRoles: (user: User) => Role[]; 
   hasPermission: (user: User | null, perm: keyof Permissions) => boolean;
-  login: (email: string, password?: string) => Promise<void>;
+  
+  // Auth
+  login: (email: string, password?: string) => Promise<string | void>; // Returns userId if 2FA needed
+  verify2FA: (userId: string, code: string) => Promise<void>; // NEW
   register: (username: string, email: string, password?: string) => Promise<void>;
   logout: () => void;
+  
+  // Features
   createThread: (forumId: string, title: string, content: string, prefixId?: string) => Promise<void>;
   updateThread: (threadId: string, data: Partial<Thread>) => Promise<void>; 
   deleteThread: (threadId: string) => Promise<void>;
@@ -54,8 +59,10 @@ interface ForumContextType {
   updateUserActivity: (activity: UserActivity) => Promise<void>;
   banUser: (userId: string, isBanned: boolean) => Promise<void>;
   markNotificationsRead: () => Promise<void>;
-  clearNotifications: () => Promise<void>; // NEW
-  deleteNotification: (id: string) => Promise<void>; // NEW
+  clearNotifications: () => Promise<void>;
+  deleteNotification: (id: string) => Promise<void>;
+  
+  // Admin
   adminCreateCategory: (title: string, backgroundUrl: string) => Promise<void>;
   adminUpdateCategory: (id: string, title: string, backgroundUrl: string) => Promise<void>;
   adminMoveCategory: (id: string, direction: 'up' | 'down') => Promise<void>; 
@@ -73,13 +80,14 @@ interface ForumContextType {
   adminUpdateRole: (role: Role) => Promise<void>;
   adminDeleteRole: (roleId: string) => Promise<void>;
   adminSetDefaultRole: (roleId: string) => Promise<void>; 
+  adminBroadcast: (text: string) => Promise<any>; // NEW
+
   search: (query: string) => { threads: Thread[], posts: Post[] };
-  
-  // NEW: Direct fetchers for View components
   loadThreadsForForum: (forumId: string) => Promise<Thread[]>;
   loadPostsForThread: (threadId: string) => Promise<Post[]>;
   loadThread: (threadId: string) => Promise<Thread | null>; 
   loadUserPosts: (userId: string) => Promise<Post[]>;
+  getTelegramLink: (userId: string) => Promise<string>; // NEW
 }
 
 const ForumContext = createContext<ForumContextType | undefined>(undefined);
@@ -109,10 +117,8 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const loadData = async (initial = false, forceOffline = false) => {
     const effectiveOffline = isOffline || forceOffline;
-    
     try {
       if (initial) setLoading(true);
-
       if (useMongo && !effectiveOffline) {
         const healthy = await mongo.checkHealth();
         if (!healthy) {
@@ -125,10 +131,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
 
       const api = getApi(effectiveOffline);
-
-      // Fetch Metadata ONLY. Do NOT fetch all threads here.
-      // We rely on ThreadView/ForumView to fetch their specific content.
-      // We do fetch recent threads for the Activity page/Sidebar.
       // @ts-ignore
       const [c, f, recentThreads, u, px, r] = await Promise.all([
         api.getCategories(),
@@ -145,8 +147,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setUsers(u || {});
       setPrefixes(px || []);
       setRoles(r || []);
-      
-      // Merge Recent Threads into Cache
       setThreads(prev => {
          const map = new Map(prev.map(t => [t.id, t]));
          if (Array.isArray(recentThreads)) {
@@ -161,9 +161,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
       setFatalError(null);
       if (initial) setIsReady(true);
-
     } catch (e: any) {
-      console.error("Critical Load Error:", e);
       if (initial && !effectiveOffline) {
         setIsOffline(true);
         initDB();
@@ -175,8 +173,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   };
 
-  // --- ASYNC DATA LOADERS (The Fix for Black Screen) ---
-  
   const loadThreadsForForum = async (forumId: string): Promise<Thread[]> => {
      try {
          const api = getApi(isOffline);
@@ -191,10 +187,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
              return newThreads;
          }
          return [];
-     } catch (e) { 
-         console.error(e);
-         return [];
-     }
+     } catch (e) { return []; }
   };
 
   const loadPostsForThread = async (threadId: string): Promise<Post[]> => {
@@ -210,10 +203,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
              return newPosts;
          }
          return [];
-     } catch (e) { 
-         console.error(e);
-         return [];
-     }
+     } catch (e) { return []; }
   };
 
   const loadThread = async (threadId: string): Promise<Thread | null> => {
@@ -230,10 +220,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               return thread;
           }
           return null;
-      } catch (e) { 
-          console.error(e);
-          return null;
-      }
+      } catch (e) { return null; }
   };
 
   const loadUserPosts = async (userId: string): Promise<Post[]> => {
@@ -250,13 +237,9 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               return newPosts;
           }
           return [];
-      } catch (e) {
-          console.error(e);
-          return [];
-      }
+      } catch (e) { return []; }
   };
 
-  // --- POLLING ---
   const startPolling = () => {
     if (pollTimer.current) clearTimeout(pollTimer.current);
     pollTimer.current = setTimeout(async () => {
@@ -277,7 +260,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return () => { isMounted.current = false; clearTimeout(pollTimer.current); };
   }, [useMongo, isOffline]); 
 
-  // --- GETTERS ---
   const getForum = (id: string) => forums.find(f => f.id === id);
   const getThread = (id: string) => threads.find(t => t.id === id);
   const getPostsByThread = (threadId: string) => posts.filter(p => p.threadId === threadId).sort((a, b) => a.number - b.number);
@@ -305,7 +287,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const hasPermission = (user: User | null, perm: keyof Permissions): boolean => {
-    // Robust check for email existence
     const userEmail = user?.email || '';
     if (user && APP_CONFIG.ROOT_ADMINS.includes(userEmail.toLowerCase())) return true;
     
@@ -325,7 +306,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
   };
 
-  // --- ACTIONS ---
   const mutate = async (fn: () => Promise<any>) => {
     try {
       await fn();
@@ -336,13 +316,12 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const mutationApi = (useMongo && !isOffline) ? mongo : db;
-  
   const safeUpdateCategory = async (cat: Category) => {
      if ((mutationApi as any).addCategoryUpdate) return (mutationApi as any).addCategoryUpdate(cat);
      return fetch(`${APP_CONFIG.API_URL}/categories/${cat.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cat) });
   };
 
-  // Wrappers
+  // Auth & Telegram
   const login = async (email: string, p?: string) => {
     if (isOffline) {
        const user = await db.login(email);
@@ -352,12 +331,26 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
        setCurrentUser(user);
        db.setSession(user.id);
     } else {
-       const user = await mongo.login(email, p);
+       const response = await mongo.login(email, p);
+       // Check if 2FA Required
+       if ('require2fa' in response && response.require2fa) {
+           return response.userId; // Return ID to prompt UI for code
+       }
+       // Normal Login
+       const user = response as User;
        if (user.isBanned) throw new Error("Пользователь забанен");
        setCurrentUser(user);
        mongo.setSession(user.id);
     }
     await loadData(false);
+  };
+
+  const verify2FA = async (userId: string, code: string) => {
+      const user = await mongo.verify2FA(userId, code);
+      if (user.isBanned) throw new Error("Пользователь забанен");
+      setCurrentUser(user);
+      mongo.setSession(user.id);
+      await loadData(false);
   };
 
   const register = async (u: string, e: string, p?: string) => {
@@ -378,12 +371,25 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const logout = () => { setCurrentUser(null); mutationApi.clearSession(); };
 
+  const getTelegramLink = async (userId: string) => {
+      if (isOffline) return '';
+      const res = await mongo.getTelegramLink(userId);
+      return res.link;
+  };
+
   const sendNotification = async (targetUserId: string, message: string, link: string) => {
     if (!currentUser || targetUserId === currentUser.id) return; 
-    const targetUser = users[targetUserId];
-    if (!targetUser) return;
-    const newNotif: Notification = { id: `n${Date.now()}`, userId: targetUserId, type: 'reply', message, link, isRead: false, createdAt: new Date().toISOString() };
-    await mutationApi.updateUser({ ...targetUser, notifications: [newNotif, ...targetUser.notifications] });
+    
+    // OFFLINE / LOCAL DB Mode
+    if (isOffline || !useMongo) {
+       const targetUser = users[targetUserId];
+       if (!targetUser) return;
+       const newNotif: Notification = { id: `n${Date.now()}`, userId: targetUserId, type: 'reply', message, link, isRead: false, createdAt: new Date().toISOString() };
+       await mutationApi.updateUser({ ...targetUser, notifications: [newNotif, ...targetUser.notifications] });
+    } else {
+       // SERVER MODE - Use Notification Endpoint to trigger Bot
+       await mongo.sendNotification(targetUserId, message, link);
+    }
   };
 
   const updateUserActivity = async (activity: UserActivity) => {
@@ -412,7 +418,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     await mutationApi.addPost({ id: `p${Date.now()}`, threadId: tid, authorId: currentUser.id, content, createdAt: now, likedBy: [], likes: 0, number: 1 });
     await mutationApi.updateForum({ ...forum, threadCount: (forum.threadCount || 0) + 1, messageCount: (forum.messageCount || 0) + 1, lastPost: { threadId: tid, threadTitle: title, authorId: currentUser.id, createdAt: now, prefixId: pid } });
     updateUser({...currentUser, messages: currentUser.messages + 1, points: currentUser.points + 5});
-    // Immediately fetch for UI update
     loadThreadsForForum(fid);
   });
 
@@ -524,6 +529,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const adminUpdateRole = (r: Role) => mutate(() => mutationApi.updateRole(r));
   const adminDeleteRole = (id: string) => mutate(() => mutationApi.deleteRole(id));
   const adminSetDefaultRole = (roleId: string) => mutate(async () => { const role = roles.find(r => r.id === roleId); if (role) await mutationApi.updateRole({ ...role, isDefault: true }); });
+  
+  const adminBroadcast = async (text: string) => {
+      if (!isOffline && useMongo) return mongo.broadcast(text);
+  };
 
   const userRole = currentUser ? (getUserRole(currentUser) || null) : null;
 
@@ -556,13 +565,13 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     <ForumContext.Provider value={{
       categories, forums, threads, posts, users, currentUser, prefixes, roles, userRole, loading, isOfflineMode: isOffline, isReady,
       getForum, getThread, getPostsByThread, getPostsByUser, getForumsByCategory, getSubForums, getUser, getUserRole, getUserRoles, hasPermission,
-      login, register, logout,
+      login, verify2FA, register, logout, getTelegramLink,
       createThread, updateThread, deleteThread, replyToThread, editPost, deletePost, toggleLike, toggleThreadLock, toggleThreadPin,
       updateUser, updateUserActivity, banUser, markNotificationsRead, clearNotifications, deleteNotification,
       adminCreateCategory, adminUpdateCategory, adminMoveCategory, adminDeleteCategory, 
       adminCreateForum, adminUpdateForum, adminMoveForum, adminDeleteForum, adminUpdateUserRole,
       adminMoveThread, adminReorderThread,
-      adminCreatePrefix, adminDeletePrefix, adminCreateRole, adminUpdateRole, adminDeleteRole, adminSetDefaultRole, search,
+      adminCreatePrefix, adminDeletePrefix, adminCreateRole, adminUpdateRole, adminDeleteRole, adminSetDefaultRole, adminBroadcast, search,
       loadThreadsForForum, loadPostsForThread, loadUserPosts, loadThread
     }}>
       {isOffline && (

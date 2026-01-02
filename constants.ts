@@ -36,6 +36,8 @@ export const SEED_ROLES: Role[] = [
       canViewAdminRoles: true,
       canViewAdminPrefixes: true,
       
+      canSendBroadcasts: true, // ADMIN ONLY
+
       canViewProfiles: true,
       canViewMemberList: true,
       canSearch: true,
@@ -92,6 +94,8 @@ export const SEED_ROLES: Role[] = [
       canViewAdminRoles: false,
       canViewAdminPrefixes: false,
 
+      canSendBroadcasts: false,
+
       canViewProfiles: true,
       canViewMemberList: true,
       canSearch: true,
@@ -147,6 +151,8 @@ export const SEED_ROLES: Role[] = [
       canViewAdminRoles: false,
       canViewAdminPrefixes: false,
 
+      canSendBroadcasts: false,
+
       canViewProfiles: true,
       canViewMemberList: true,
       canSearch: true,
@@ -201,6 +207,8 @@ export const SEED_ROLES: Role[] = [
       canViewAdminThreads: false,
       canViewAdminRoles: false,
       canViewAdminPrefixes: false,
+
+      canSendBroadcasts: false,
 
       canViewProfiles: false, // RESTRICTED
       canViewMemberList: false, // RESTRICTED
@@ -307,4 +315,3 @@ export const MOCK_FORUMS = SEED_FORUMS;
 export const MOCK_USERS: Record<string, User> = {};
 export const MOCK_THREADS: Thread[] = [];
 export const MOCK_POSTS: Post[] = [];
-

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useForum } from '../../context/ForumContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { X, User, Lock, Mail } from 'lucide-react';
+import { X, User, Lock, Mail, ShieldCheck } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -16,7 +16,12 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   
-  const { login, register } = useForum();
+  // 2FA State
+  const [require2FA, setRequire2FA] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [tempUserId, setTempUserId] = useState('');
+
+  const { login, register, verify2FA } = useForum();
   const { t } = useLanguage();
 
   // Reset state when opening or switching view mode from props
@@ -24,6 +29,9 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
     if (isOpen) {
       setIsRegistering(initialView === 'register');
       setError('');
+      setRequire2FA(false);
+      setTwoFactorCode('');
+      setTempUserId('');
     }
   }, [isOpen, initialView]);
 
@@ -33,7 +41,25 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
     e.preventDefault();
     setError('');
 
-    // Validation Logic
+    // 2FA Verification Flow
+    if (require2FA) {
+        if (!twoFactorCode) {
+            setError("Введите код подтверждения");
+            return;
+        }
+        try {
+            await verify2FA(tempUserId, twoFactorCode);
+            onClose();
+            // Reset
+            setUsername(''); setEmail(''); setPassword('');
+            setRequire2FA(false); setTwoFactorCode('');
+        } catch (err: any) {
+            setError(err.message || 'Неверный код');
+        }
+        return;
+    }
+
+    // Normal Validation
     if (isRegistering) {
         if (!username || !email || !password) {
             setError(t('auth.error.required'));
@@ -49,15 +75,19 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
     try {
       if (isRegistering) {
         await register(username, email, password);
+        onClose();
+        setUsername(''); setEmail(''); setPassword('');
       } else {
-        // Login uses Email now
-        await login(email, password);
+        const responseUserId = await login(email, password);
+        if (responseUserId) {
+            // Need 2FA
+            setRequire2FA(true);
+            setTempUserId(responseUserId);
+        } else {
+            onClose();
+            setUsername(''); setEmail(''); setPassword('');
+        }
       }
-      onClose();
-      // Reset fields on successful close
-      setUsername('');
-      setEmail('');
-      setPassword('');
     } catch (err: any) {
       setError(err.message || 'An error occurred');
     }
@@ -68,7 +98,7 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
       <div className="bg-[#111] border border-[#333] w-full max-w-md rounded shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
         <div className="p-4 bg-[#0a0a0a] border-b border-[#333] flex justify-between items-center">
           <h2 className="text-xl font-bold text-white">
-            {isRegistering ? t('auth.createAccount') : t('auth.welcome')}
+            {require2FA ? '2FA Защита' : (isRegistering ? t('auth.createAccount') : t('auth.welcome'))}
           </h2>
           <button onClick={onClose} className="text-gray-500 hover:text-white">
             <X className="w-5 h-5" />
@@ -82,69 +112,95 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
             </div>
           )}
 
-          {isRegistering && (
-            <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-400">{t('auth.username')}</label>
-                <div className="relative">
-                <User className="absolute left-3 top-2.5 w-5 h-5 text-gray-600" />
-                <input 
-                    type="text" 
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full bg-[#0a0a0a] border border-[#333] rounded py-2.5 pl-10 pr-4 text-white focus:border-white focus:outline-none transition-all"
-                    placeholder={t('auth.placeholder.username')}
-                />
+          {require2FA ? (
+             <div className="space-y-4">
+                <div className="text-center text-sm text-gray-400">
+                   Мы отправили код подтверждения в ваш Telegram.
                 </div>
-            </div>
+                <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-400">Код подтверждения</label>
+                    <div className="relative">
+                        <ShieldCheck className="absolute left-3 top-2.5 w-5 h-5 text-cyan-500" />
+                        <input 
+                            type="text" 
+                            value={twoFactorCode}
+                            onChange={(e) => setTwoFactorCode(e.target.value)}
+                            className="w-full bg-[#0a0a0a] border border-cyan-900 rounded py-2.5 pl-10 pr-4 text-white text-center tracking-widest font-mono text-lg focus:border-cyan-500 focus:outline-none transition-all"
+                            placeholder="123456"
+                            autoFocus
+                        />
+                    </div>
+                </div>
+             </div>
+          ) : (
+             <>
+                {isRegistering && (
+                    <div className="space-y-1">
+                        <label className="text-sm font-medium text-gray-400">{t('auth.username')}</label>
+                        <div className="relative">
+                        <User className="absolute left-3 top-2.5 w-5 h-5 text-gray-600" />
+                        <input 
+                            type="text" 
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            className="w-full bg-[#0a0a0a] border border-[#333] rounded py-2.5 pl-10 pr-4 text-white focus:border-white focus:outline-none transition-all"
+                            placeholder={t('auth.placeholder.username')}
+                        />
+                        </div>
+                    </div>
+                )}
+
+                <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-400">{t('auth.email')}</label>
+                    <div className="relative">
+                    <Mail className="absolute left-3 top-2.5 w-5 h-5 text-gray-600" />
+                    <input 
+                        type="email" 
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full bg-[#0a0a0a] border border-[#333] rounded py-2.5 pl-10 pr-4 text-white focus:border-white focus:outline-none transition-all"
+                        placeholder={t('auth.placeholder.email')}
+                    />
+                    </div>
+                </div>
+
+                <div className="space-y-1">
+                    <label className="text-sm font-medium text-gray-400">{t('auth.password')}</label>
+                    <div className="relative">
+                    <Lock className="absolute left-3 top-2.5 w-5 h-5 text-gray-600" />
+                    <input 
+                        type="password" 
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full bg-[#0a0a0a] border border-[#333] rounded py-2.5 pl-10 pr-4 text-white focus:border-white focus:outline-none transition-all"
+                        placeholder={t('auth.placeholder.password')}
+                    />
+                    </div>
+                </div>
+             </>
           )}
-
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-400">{t('auth.email')}</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-2.5 w-5 h-5 text-gray-600" />
-              <input 
-                type="email" 
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-[#0a0a0a] border border-[#333] rounded py-2.5 pl-10 pr-4 text-white focus:border-white focus:outline-none transition-all"
-                placeholder={t('auth.placeholder.email')}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-400">{t('auth.password')}</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-2.5 w-5 h-5 text-gray-600" />
-              <input 
-                type="password" 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-[#0a0a0a] border border-[#333] rounded py-2.5 pl-10 pr-4 text-white focus:border-white focus:outline-none transition-all"
-                placeholder={t('auth.placeholder.password')}
-              />
-            </div>
-          </div>
 
           <button 
             type="submit" 
             className="w-full py-3 bg-white text-black font-bold rounded shadow hover:bg-gray-200 transition-all transform hover:scale-[1.01]"
           >
-            {isRegistering ? t('auth.register') : t('auth.login')}
+            {require2FA ? 'Подтвердить' : (isRegistering ? t('auth.register') : t('auth.login'))}
           </button>
 
-          <div className="text-center pt-2">
-            <span className="text-sm text-gray-500">
-              {isRegistering ? t('auth.alreadyHave') : t('auth.noAccount')}
-            </span>
-            <button 
-              type="button"
-              onClick={() => { setIsRegistering(!isRegistering); setError(''); }}
-              className="ml-2 text-sm font-bold text-white hover:underline"
-            >
-              {isRegistering ? t('auth.login') : t('auth.register')}
-            </button>
-          </div>
+          {!require2FA && (
+              <div className="text-center pt-2">
+                <span className="text-sm text-gray-500">
+                {isRegistering ? t('auth.alreadyHave') : t('auth.noAccount')}
+                </span>
+                <button 
+                type="button"
+                onClick={() => { setIsRegistering(!isRegistering); setError(''); }}
+                className="ml-2 text-sm font-bold text-white hover:underline"
+                >
+                {isRegistering ? t('auth.login') : t('auth.register')}
+                </button>
+            </div>
+          )}
         </form>
       </div>
     </div>

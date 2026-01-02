@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Settings, Save, PenTool, Mail, Lock, User, Tag, Clock } from 'lucide-react';
+import { Settings, Save, PenTool, Mail, Lock, User, Tag, Clock, Shield, Smartphone, Send } from 'lucide-react';
 import Sidebar from '../components/Layout/Sidebar';
 import ImageUpload from '../components/UI/ImageUpload';
 
 const SettingsPage: React.FC = () => {
-  const { currentUser, updateUser, hasPermission } = useForum();
+  const { currentUser, updateUser, hasPermission, getTelegramLink, isOfflineMode } = useForum();
   const { t } = useLanguage();
   
   const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl || '');
@@ -15,22 +15,21 @@ const SettingsPage: React.FC = () => {
   const [email, setEmail] = useState(currentUser?.email || '');
   const [password, setPassword] = useState('');
   
-  // New Fields controlled by permissions
   const [username, setUsername] = useState(currentUser?.username || '');
   const [customTitle, setCustomTitle] = useState(currentUser?.customTitle || '');
   
+  const [tgLink, setTgLink] = useState('');
+  const [tgLoading, setTgLoading] = useState(false);
+
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
 
   if (!currentUser) return <div className="p-8 text-center text-white">{t('auth.login')}</div>;
 
-  // COOLDOWN LOGIC
   const DAYS_COOLDOWN = 12;
   const lastChange = new Date(currentUser.lastUsernameChange || 0);
   const diffTime = Math.abs(Date.now() - lastChange.getTime());
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-  // If lastChange is 0 (never changed) -> diffDays is huge -> canChange is true
-  // If changed yesterday -> diffDays is 1 -> canChange is false (needs >= 12)
   const canChangeUsernameByTime = !currentUser.lastUsernameChange || diffDays >= DAYS_COOLDOWN;
   const daysLeft = DAYS_COOLDOWN - diffDays;
 
@@ -38,7 +37,6 @@ const SettingsPage: React.FC = () => {
     e.preventDefault();
     setError('');
     
-    // Validate Username change if applicable
     if (username !== currentUser.username) {
         if (!hasPermission(currentUser, 'canChangeUsername')) {
             setError(t('settings.noPermissionUsername'));
@@ -58,12 +56,27 @@ const SettingsPage: React.FC = () => {
       email,
       username: (hasPermission(currentUser, 'canChangeUsername') && canChangeUsernameByTime) ? username : currentUser.username,
       customTitle: hasPermission(currentUser, 'canChangeCustomTitle') ? customTitle : currentUser.customTitle,
-      // Update cooldown timestamp ONLY if username changed
       lastUsernameChange: (username !== currentUser.username) ? new Date().toISOString() : currentUser.lastUsernameChange
     });
     setSuccess(true);
     setPassword(''); 
     setTimeout(() => setSuccess(false), 3000);
+  };
+
+  const handleGenerateLink = async () => {
+      setTgLoading(true);
+      try {
+          const link = await getTelegramLink(currentUser.id);
+          setTgLink(link);
+      } catch (e) {
+          alert("Error generating link. Are you online?");
+      } finally {
+          setTgLoading(false);
+      }
+  };
+
+  const toggle2FA = async () => {
+      await updateUser({ ...currentUser, twoFactorEnabled: !currentUser.twoFactorEnabled });
   };
 
   return (
@@ -147,6 +160,66 @@ const SettingsPage: React.FC = () => {
                    className="w-full bg-gray-900 border border-gray-700 rounded p-2.5 text-white focus:border-cyan-500 outline-none"
                  />
                </div>
+             </div>
+
+             <div className="border-t border-gray-700 my-2"></div>
+
+             {/* SECURITY & TELEGRAM */}
+             <div className="bg-[#111] p-4 rounded border border-[#333]">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Shield className="w-5 h-5 text-green-500" /> Безопасность и Telegram</h3>
+                
+                {isOfflineMode ? (
+                    <div className="text-yellow-500 text-sm italic">Telegram функции недоступны в оффлайн режиме.</div>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+                            <div>
+                                <div className="text-sm text-gray-300 font-bold flex items-center gap-2">
+                                    <Send className="w-4 h-4 text-blue-400" /> 
+                                    Статус Telegram: {currentUser.telegramId ? <span className="text-green-400">Привязан</span> : <span className="text-red-400">Не привязан</span>}
+                                </div>
+                                {!currentUser.telegramId && <p className="text-xs text-gray-500 mt-1">Привяжите аккаунт для получения уведомлений и 2FA.</p>}
+                            </div>
+                            
+                            {!currentUser.telegramId ? (
+                                <div className="flex flex-col gap-2 w-full md:w-auto">
+                                    <button 
+                                        type="button" 
+                                        onClick={handleGenerateLink} 
+                                        disabled={tgLoading}
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded font-bold transition-colors disabled:opacity-50"
+                                    >
+                                        {tgLoading ? 'Генерация...' : 'Получить ссылку привязки'}
+                                    </button>
+                                    {tgLink && (
+                                        <div className="bg-[#000] p-2 rounded border border-[#333] text-center">
+                                            <a href={tgLink} target="_blank" className="text-blue-400 underline text-sm break-all">{tgLink}</a>
+                                            <p className="text-[10px] text-gray-500 mt-1">Нажмите на ссылку и запустите бота (/start)</p>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="text-xs text-gray-500 font-mono">ID: {currentUser.telegramId}</div>
+                            )}
+                        </div>
+
+                        {currentUser.telegramId && (
+                            <div className="flex items-center justify-between pt-4 border-t border-[#222]">
+                                <div>
+                                    <div className="text-sm font-bold text-gray-300 flex items-center gap-2">
+                                        <Smartphone className="w-4 h-4 text-purple-400" />
+                                        Двухфакторная аутентификация (2FA)
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">Требовать код из Telegram при входе.</p>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" checked={currentUser.twoFactorEnabled} onChange={toggle2FA} className="sr-only peer" />
+                                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                                </label>
+                            </div>
+                        )}
+                    </div>
+                )}
              </div>
 
              <div className="border-t border-gray-700 my-2"></div>
