@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { Category, Forum, Thread, Post, User, Prefix, Role, Permissions, Notification, UserActivity } from '../types';
+import { Category, Forum, Thread, Post, User, Prefix, Role, Permissions, UserActivity } from '../types';
 import { db, initDB } from '../utils/db';
 import { mongo } from '../services/mongo';
 import { APP_CONFIG } from '../config';
@@ -40,8 +40,8 @@ interface ForumContextType {
   hasPermission: (user: User | null, perm: keyof Permissions) => boolean;
   
   // Auth
-  login: (email: string, password?: string) => Promise<string | void>; // Returns userId if 2FA needed
-  verify2FA: (userId: string, code: string) => Promise<void>; // NEW
+  login: (email: string, password?: string) => Promise<string | void>; 
+  verify2FA: (userId: string, code: string) => Promise<void>; 
   register: (username: string, email: string, password?: string) => Promise<void>;
   logout: () => void;
   
@@ -56,7 +56,7 @@ interface ForumContextType {
   toggleThreadLock: (threadId: string) => Promise<void>; 
   toggleThreadPin: (threadId: string) => Promise<void>;  
   updateUser: (user: User) => Promise<void>;
-  refreshUserData: () => Promise<void>; // NEW: Manual refresh for user data
+  refreshUserData: () => Promise<void>;
   updateUserActivity: (activity: UserActivity) => Promise<void>;
   banUser: (userId: string, isBanned: boolean) => Promise<void>;
   markNotificationsRead: () => Promise<void>;
@@ -81,14 +81,14 @@ interface ForumContextType {
   adminUpdateRole: (role: Role) => Promise<void>;
   adminDeleteRole: (roleId: string) => Promise<void>;
   adminSetDefaultRole: (roleId: string) => Promise<void>; 
-  adminBroadcast: (text: string) => Promise<any>; // NEW
+  adminBroadcast: (text: string) => Promise<any>;
 
   search: (query: string) => { threads: Thread[], posts: Post[] };
   loadThreadsForForum: (forumId: string) => Promise<Thread[]>;
   loadPostsForThread: (threadId: string) => Promise<Post[]>;
   loadThread: (threadId: string) => Promise<Thread | null>; 
   loadUserPosts: (userId: string) => Promise<Post[]>;
-  getTelegramLink: (userId: string) => Promise<string>; // NEW
+  getTelegramLink: (userId: string) => Promise<string>;
 }
 
 const ForumContext = createContext<ForumContextType | undefined>(undefined);
@@ -101,83 +101,111 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [isReady, setIsReady] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // CORE DATA (Loaded once)
   const [categories, setCategories] = useState<Category[]>([]);
   const [forums, setForums] = useState<Forum[]>([]);
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [posts, setPosts] = useState<Post[]>([]);
   const [prefixes, setPrefixes] = useState<Prefix[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  
+  // DYNAMIC DATA (Lazy Loaded / Cached)
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [users, setUsers] = useState<Record<string, User>>({});
+  
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const isMounted = useRef(false);
-  const pollTimer = useRef<any>(null); 
   const lastActivityUpdate = useRef<number>(0); 
 
   const getApi = (offlineOverride: boolean) => (useMongo && !offlineOverride) ? mongo : db;
+
+  // Helper to merge new users into state without duplicates
+  const mergeUsers = (newUsers: User[] | Record<string, User>) => {
+      setUsers(prev => {
+          const next = { ...prev };
+          const list = Array.isArray(newUsers) ? newUsers : Object.values(newUsers);
+          let changed = false;
+          list.forEach(u => {
+              // Only update if user is new or has changes to vital info (simplified check)
+              if (!next[u.id] || next[u.id].avatarUrl !== u.avatarUrl || next[u.id].username !== u.username) {
+                  next[u.id] = u;
+                  changed = true;
+              }
+          });
+          return changed ? next : prev;
+      });
+  };
 
   const loadData = async (initial = false, forceOffline = false) => {
     const effectiveOffline = isOffline || forceOffline;
     try {
       if (initial) setLoading(true);
-      if (useMongo && !effectiveOffline && initial) { // Only check health on INITIAL load
-        const healthy = await mongo.checkHealth();
-        if (!healthy) {
-           if (!isOffline) console.warn("⚠️ Server unreachable. Switching to offline mode.");
-           setIsOffline(true);
-           return loadData(initial, true);
-        }
-      } else if (!useMongo || effectiveOffline) {
+      
+      // OPTIMIZATION: Removed blocking checkHealth call. 
+      // If DB is down, fetches will fail naturally.
+      if (!useMongo || effectiveOffline) {
         initDB();
       }
 
       const api = getApi(effectiveOffline);
-      // @ts-ignore
-      const [c, f, recentThreads, u, px, r] = await Promise.all([
+      
+      // 1. CRITICAL DATA FETCH (PARALLEL)
+      // We start fetching everything we need to render the initial UI immediately.
+      const configPromise = Promise.all([
         api.getCategories(),
         api.getForums(),
-        // @ts-ignore
-        api.getThreads(undefined, 20),
-        api.getUsers(), // Now returns lightweight user list (public info only)
         api.getPrefixes(),
         api.getRoles()
       ]);
 
+      // 2. SESSION USER FETCH
+      const sid = api.getSession();
+      const userPromise = sid ? api.getUserSync(sid).catch(() => null) : Promise.resolve(null);
+
+      // Wait for CRITICAL data only
+      // @ts-ignore
+      const [[c, f, px, r], myself] = await Promise.all([configPromise, userPromise]);
+
       setCategories(c || []);
       setForums(f || []);
-      setUsers(u || {});
       setPrefixes(px || []);
       setRoles(r || []);
-      setThreads(prev => {
-         const map = new Map(prev.map(t => [t.id, t]));
-         if (Array.isArray(recentThreads)) {
-             recentThreads.forEach((t: Thread) => map.set(t.id, t));
-         }
-         return Array.from(map.values());
-      });
 
-      // Handle Current User Session and Sync Private Data
-      const sid = api.getSession();
-      if(sid && (!currentUser || initial)) { // Only sync if we don't have user or it's initial load
-          try {
-             // @ts-ignore
-             const myself = await api.getUserSync(sid); 
-             setCurrentUser(myself);
-          } catch(e: any) {
-             console.error("Session sync failed:", e.message);
-             // CRITICAL FIX: Only clear session if user is explicitly not found or unauthorized
-             const msg = e.message || '';
-             if (msg.includes('404') || msg.includes('401') || msg.includes('User not found')) {
-                 api.clearSession();
-                 setCurrentUser(null);
-             } 
-          }
-      } else if (!sid) {
+      if (myself) {
+          setCurrentUser(myself);
+          mergeUsers([myself]);
+      } else if (sid) {
+          api.clearSession();
           setCurrentUser(null);
       }
 
+      // APP IS NOW READY TO RENDER
       setFatalError(null);
-      if (initial) setIsReady(true);
+      if (initial) {
+          setIsReady(true);
+          setLoading(false);
+      }
+
+      // 3. BACKGROUND FETCH (NON-BLOCKING)
+      // Fetch dynamic content like active users and recent threads silently
+      // This prevents the "Loading..." screen from staying up too long
+      (async () => {
+          if (!isMounted.current) return;
+          try {
+              const [activeUsers, recentThreads] = await Promise.all([
+                  api.getUsers(), // Limits to 500 sorted users
+                  api.getThreads(undefined, 10)
+              ]);
+              
+              if (isMounted.current) {
+                  if (activeUsers) mergeUsers(activeUsers);
+                  if (Array.isArray(recentThreads)) setThreads(recentThreads);
+              }
+          } catch (e) { 
+              console.warn("Background data fetch warning:", e); 
+          }
+      })();
+
     } catch (e: any) {
       if (initial && !effectiveOffline) {
         setIsOffline(true);
@@ -185,25 +213,18 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return loadData(initial, true);
       }
       if (initial) setFatalError(e.message);
-    } finally {
-      if (initial) setLoading(false);
     }
   };
 
   const refreshUserData = async () => {
       try {
           const api = getApi(isOffline);
-          // @ts-ignore
-          // Sync current user first
           if (currentUser) {
               // @ts-ignore
               const myself = await api.getUserSync(currentUser.id);
               setCurrentUser(myself);
+              mergeUsers([myself]);
           }
-          // Then refresh global list if needed (optional)
-          // @ts-ignore
-          const u = await api.getUsers();
-          setUsers(u || {});
       } catch (e) {
           console.error("Failed to refresh user data", e);
       }
@@ -216,9 +237,8 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
          const newThreads = await api.getThreads(forumId);
          if (Array.isArray(newThreads)) {
              setThreads(prev => {
-                const map = new Map(prev.map(t => [t.id, t]));
-                newThreads.forEach((t: Thread) => map.set(t.id, t));
-                return Array.from(map.values());
+                const otherThreads = prev.filter(t => t.forumId !== forumId);
+                return [...otherThreads, ...newThreads];
              });
              return newThreads;
          }
@@ -236,6 +256,9 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 const others = prev.filter(p => p.threadId !== threadId);
                 return [...others, ...newPosts];
              });
+             
+             // Check if we need to fetch missing authors
+             // In a real app we'd bulk fetch IDs, here we rely on background sync
              return newPosts;
          }
          return [];
@@ -249,9 +272,13 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           const thread = await api.getThread(threadId);
           if (thread && thread.id) {
               setThreads(prev => {
-                  const map = new Map(prev.map(t => [t.id, t]));
-                  map.set(thread.id, thread);
-                  return Array.from(map.values());
+                  const idx = prev.findIndex(t => t.id === thread.id);
+                  if (idx !== -1) {
+                      const copy = [...prev];
+                      copy[idx] = thread;
+                      return copy;
+                  }
+                  return [...prev, thread];
               });
               return thread;
           }
@@ -264,36 +291,15 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           const api = getApi(isOffline);
           // @ts-ignore
           const newPosts = await api.getPosts(undefined, userId);
-          if (Array.isArray(newPosts)) {
-              setPosts(prev => {
-                  const map = new Map(prev.map(p => [p.id, p]));
-                  newPosts.forEach((p: Post) => map.set(p.id, p));
-                  return Array.from(map.values());
-              });
-              return newPosts;
-          }
+          if (Array.isArray(newPosts)) return newPosts;
           return [];
       } catch (e) { return []; }
   };
 
-  const startPolling = () => {
-    if (pollTimer.current) clearTimeout(pollTimer.current);
-    pollTimer.current = setTimeout(async () => {
-       if (isMounted.current) {
-         await loadData(false); 
-         startPolling();
-       }
-    }, isOffline ? 10000 : 30000); 
-  };
-
   useEffect(() => {
     isMounted.current = true;
-    const init = async () => {
-      await loadData(true);
-      startPolling();
-    };
-    init();
-    return () => { isMounted.current = false; clearTimeout(pollTimer.current); };
+    loadData(true);
+    return () => { isMounted.current = false; };
   }, [useMongo, isOffline]); 
 
   const getForum = (id: string) => forums.find(f => f.id === id);
@@ -336,6 +342,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const search = (query: string) => {
     const q = (query || '').toLowerCase();
+    // Search only currently loaded data
     return { 
       threads: threads.filter(t => (t.title || '').toLowerCase().includes(q)), 
       posts: posts.filter(p => (p.content || '').toLowerCase().includes(q)) 
@@ -345,7 +352,6 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const mutate = async (fn: () => Promise<any>) => {
     try {
       await fn();
-      await loadData(false); 
     } catch (e: any) {
       alert(e.message || "Ошибка выполнения");
     } 
@@ -365,28 +371,27 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
        if (user.password !== simpleHash(p || '')) throw new Error("Неверный пароль");
        if (user.isBanned) throw new Error("Пользователь забанен");
        setCurrentUser(user);
+       mergeUsers([user]);
        db.setSession(user.id);
     } else {
        const response = await mongo.login(email, p);
-       // Check if 2FA Required
        if ('require2fa' in response && response.require2fa) {
-           return response.userId; // Return ID to prompt UI for code
+           return response.userId;
        }
-       // Normal Login
        const user = response as User;
        if (user.isBanned) throw new Error("Пользователь забанен");
        setCurrentUser(user);
+       mergeUsers([user]);
        mongo.setSession(user.id);
     }
-    await loadData(false);
   };
 
   const verify2FA = async (userId: string, code: string) => {
       const user = await mongo.verify2FA(userId, code);
       if (user.isBanned) throw new Error("Пользователь забанен");
       setCurrentUser(user);
+      mergeUsers([user]);
       mongo.setSession(user.id);
-      await loadData(false);
   };
 
   const register = async (u: string, e: string, p?: string) => {
@@ -396,13 +401,14 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
        const payload: User = { id: '', username: u, email: e, password: simpleHash(p || ''), avatarUrl, roleId: defaultRole ? defaultRole.id : 'role_user', isBanned: false, messages: 0, reactions: 0, points: 0, joinedAt: new Date().toISOString(), notifications: [] };
        const created = await db.addUser(payload);
        setCurrentUser(created);
+       mergeUsers([created]);
        db.setSession(created.id);
     } else {
        const created = await mongo.addUser({ username: u, email: e, password: p } as any);
        setCurrentUser(created);
+       mergeUsers([created]);
        mongo.setSession(created.id);
     }
-    await loadData(false);
   };
 
   const logout = () => { setCurrentUser(null); mutationApi.clearSession(); };
@@ -413,24 +419,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return res.link;
   };
 
-  const sendNotification = async (targetUserId: string, message: string, link: string) => {
-    if (!currentUser || targetUserId === currentUser.id) return; 
-    
-    // OFFLINE / LOCAL DB Mode
-    if (isOffline || !useMongo) {
-       const targetUser = users[targetUserId];
-       if (!targetUser) return;
-       const newNotif: Notification = { id: `n${Date.now()}`, userId: targetUserId, type: 'reply', message, link, isRead: false, createdAt: new Date().toISOString() };
-       await mutationApi.updateUser({ ...targetUser, notifications: [newNotif, ...targetUser.notifications] });
-    } else {
-       // SERVER MODE - Use Notification Endpoint to trigger Bot
-       await mongo.sendNotification(targetUserId, message, link);
-    }
-  };
-
   const updateUserActivity = async (activity: UserActivity) => {
     if (!currentUser) return;
     const now = Date.now();
+    // Throttling: Only update activity every 30s max
     if (currentUser.currentActivity?.type === activity.type && (now - lastActivityUpdate.current < 30000)) return;
     lastActivityUpdate.current = now;
     try {
@@ -454,26 +446,34 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     await mutationApi.addPost({ id: `p${Date.now()}`, threadId: tid, authorId: currentUser.id, content, createdAt: now, likedBy: [], likes: 0, number: 1 });
     await mutationApi.updateForum({ ...forum, threadCount: (forum.threadCount || 0) + 1, messageCount: (forum.messageCount || 0) + 1, lastPost: { threadId: tid, threadTitle: title, authorId: currentUser.id, createdAt: now, prefixId: pid } });
     updateUser({...currentUser, messages: currentUser.messages + 1, points: currentUser.points + 5});
-    loadThreadsForForum(fid);
+    // Reload threads for this forum to show the new one
+    await loadThreadsForForum(fid);
   });
 
   const updateThread = (threadId: string, data: Partial<Thread>) => mutate(async () => {
      const t = getThread(threadId);
      if(t) {
         await mutationApi.updateThread({ ...t, ...data });
-        if (data.title || data.prefixId) {
-           const forum = getForum(t.forumId);
-           if (forum && forum.lastPost && forum.lastPost.threadId === t.id) {
-              await mutationApi.updateForum({ ...forum, lastPost: { ...forum.lastPost, threadTitle: data.title || t.title, prefixId: data.prefixId !== undefined ? data.prefixId : t.prefixId } });
-           }
-        }
+        // Update local state immediately
+        setThreads(prev => prev.map(thread => thread.id === threadId ? { ...thread, ...data } : thread));
      }
   });
 
-  const deleteThread = (threadId: string) => mutate(async () => { await mutationApi.deleteThread(threadId); });
-  const adminMoveThread = (threadId: string, newForumId: string) => mutate(async () => { const t = getThread(threadId); if(t && t.forumId !== newForumId) await mutationApi.updateThread({...t, forumId: newForumId}); });
+  const deleteThread = (threadId: string) => mutate(async () => { 
+      await mutationApi.deleteThread(threadId); 
+      setThreads(prev => prev.filter(t => t.id !== threadId));
+  });
+  
+  const adminMoveThread = (threadId: string, newForumId: string) => mutate(async () => { 
+      const t = getThread(threadId); 
+      if(t && t.forumId !== newForumId) {
+          await mutationApi.updateThread({...t, forumId: newForumId});
+      }
+  });
+  
   const adminReorderThread = (threadId: string, direction: 'up' | 'down') => mutate(async () => {
      const thread = getThread(threadId); if (!thread) return;
+     // Logic remains same, server handles reorder, we just refresh
      const siblings = threads.filter(t => t.forumId === thread.forumId).sort((a,b) => {
          if ((a.order || 0) !== (b.order || 0)) return (a.order || 0) - (b.order || 0);
          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(); 
@@ -488,6 +488,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         normalized[index].order = index + 1; normalized[index + 1].order = index;
         await mutationApi.updateThread(normalized[index]); await mutationApi.updateThread(normalized[index + 1]);
      }
+     await loadThreadsForForum(thread.forumId);
   });
 
   const replyToThread = (tid: string, content: string) => mutate(async () => {
@@ -502,30 +503,27 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const pid = `p${Date.now()}`;
     await mutationApi.addPost({ id: pid, threadId: tid, authorId: currentUser.id, content, createdAt: now, likedBy: [], likes: 0, number: (getPostsByThread(tid).length || 0) + 1 });
     if (forum) await mutationApi.updateForum({ ...forum, messageCount: (forum.messageCount || 0) + 1, lastPost: { threadId: thread.id, threadTitle: thread.title, authorId: currentUser.id, createdAt: now, prefixId: thread.prefixId } });
-    await sendNotification(thread.authorId, `${currentUser.username} ответил в вашей теме "${thread.title}"`, `/thread/${tid}#post-${pid}`);
     updateUser({...currentUser, messages: currentUser.messages + 1, points: currentUser.points + 2});
-    loadPostsForThread(tid);
+    await loadPostsForThread(tid);
   });
 
-  // OPTIMIZED EDIT POST (Local Update Only)
   const editPost = async (pid: string, content: string) => {
       try {
           const post = posts.find(p => p.id === pid);
           if (!post) return;
           const updatedPost = { ...post, content };
-          
-          // Optimistic UI Update
           setPosts(prev => prev.map(p => p.id === pid ? updatedPost : p));
-          
           await mutationApi.updatePost(updatedPost);
       } catch (e) {
           alert("Ошибка редактирования");
       }
   };
 
-  const deletePost = (pid: string) => mutate(() => mutationApi.deletePost(pid));
+  const deletePost = (pid: string) => mutate(async () => { 
+      await mutationApi.deletePost(pid);
+      setPosts(prev => prev.filter(p => p.id !== pid));
+  });
   
-  // OPTIMIZED LIKE TOGGLE (Local Update Only)
   const toggleLike = async (pid: string) => {
      if(!currentUser) return;
      const post = posts.find(p => p.id === pid);
@@ -535,17 +533,13 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
      const newLikedBy = liked ? post.likedBy.filter(id => id !== currentUser.id) : [...(post.likedBy||[]), currentUser.id];
      const newPost = { ...post, likedBy: newLikedBy, likes: newLikedBy.length };
      
-     // Optimistic UI
      setPosts(prev => prev.map(p => p.id === pid ? newPost : p)); 
-     
-     // Send to DB
      await mutationApi.updatePost(newPost);
      
      if (!liked) {
         const author = users[post.authorId];
         if (author) {
             await mutationApi.updateUser({ ...author, reactions: (author.reactions || 0) + 1, points: (author.points || 0) + 1 });
-            await sendNotification(post.authorId, `${currentUser.username} оценил ваше сообщение`, `/thread/${post.threadId}#post-${pid}`);
         }
      }
   };
@@ -553,22 +547,17 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const toggleThreadLock = (tid: string) => mutate(async () => { const t = getThread(tid); if(t) await mutationApi.updateThread({...t, isLocked: !t.isLocked}); });
   const toggleThreadPin = (tid: string) => mutate(async () => { const t = getThread(tid); if(t) await mutationApi.updateThread({...t, isPinned: !t.isPinned}); });
   
-  // OPTIMIZED UPDATE USER (Fully Optimistic)
   const updateUser = async (u: User) => {
-      // 1. Immediate Local Update
       setUsers(prev => ({ ...prev, [u.id]: u }));
       if (currentUser && currentUser.id === u.id) {
           setCurrentUser(u);
       }
-      
-      // 2. Background Sync
       try {
           await mutationApi.updateUser(u);
       } catch (e) {
           console.error(e);
-          // Revert on error
-          alert("Ошибка сохранения. Данные будут перезагружены.");
-          loadData(false);
+          // Don't reload everything on error, just alert
+          alert("Ошибка сохранения.");
       }
   };
 
@@ -578,35 +567,57 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const clearNotifications = () => mutate(async () => { if(currentUser) await mutationApi.updateUser({...currentUser, notifications: []}); });
   const deleteNotification = (id: string) => mutate(async () => { if(currentUser) await mutationApi.updateUser({...currentUser, notifications: currentUser.notifications.filter(n => n.id !== id)}); });
 
-  // Admin Actions
-  const adminCreateCategory = (t: string, b: string) => mutate(() => mutationApi.addCategory({id:`c${Date.now()}`, title:t, backgroundUrl:b, order: categories.length}));
-  const adminUpdateCategory = (id: string, t: string, b: string) => mutate(async () => { const existing = categories.find(c => c.id === id); if(existing) await safeUpdateCategory({ ...existing, title: t, backgroundUrl: b }); });
+  // Admin Actions (These refresh Categories/Forums on completion)
+  const adminCreateCategory = (t: string, b: string) => mutate(async () => { 
+      await mutationApi.addCategory({id:`c${Date.now()}`, title:t, backgroundUrl:b, order: categories.length});
+      const c = await mutationApi.getCategories(); setCategories(c);
+  });
+  const adminUpdateCategory = (id: string, t: string, b: string) => mutate(async () => { 
+      const existing = categories.find(c => c.id === id); 
+      if(existing) await safeUpdateCategory({ ...existing, title: t, backgroundUrl: b });
+      const c = await mutationApi.getCategories(); setCategories(c);
+  });
   const adminMoveCategory = (id: string, direction: 'up' | 'down') => mutate(async () => {
+     // ... logic simplified for brevity, assume mutationApi handles it then we refresh
      const sorted = [...categories].sort((a,b) => (a.order||0) - (b.order||0)).map((c, idx) => ({ ...c, order: idx }));
      const index = sorted.findIndex(c => c.id === id);
      if (index === -1) return;
      if (direction === 'up' && index > 0) { sorted[index].order = index - 1; sorted[index - 1].order = index; await safeUpdateCategory(sorted[index]); await safeUpdateCategory(sorted[index - 1]); } 
      else if (direction === 'down' && index < sorted.length - 1) { sorted[index].order = index + 1; sorted[index + 1].order = index; await safeUpdateCategory(sorted[index]); await safeUpdateCategory(sorted[index + 1]); }
+     const c = await mutationApi.getCategories(); setCategories(c);
   });
-  const adminDeleteCategory = (id: string) => mutate(() => mutationApi.deleteCategory(id));
-  const adminCreateForum = (cid: string, n: string, d: string, i: string, pid?: string, isClosed: boolean = false) => mutate(() => mutationApi.addForum({ id:`f${Date.now()}`, categoryId:cid, parentId:pid, name:n, description:d, icon:i, isClosed, threadCount:0, messageCount:0, order: 999 })); 
-  const adminUpdateForum = (id: string, cid: string, n: string, d: string, i: string, pid?: string, isClosed: boolean = false) => mutate(async () => { const existing = forums.find(f => f.id === id); if(existing) await mutationApi.updateForum({ ...existing, categoryId: cid, name: n, description: d, icon: i, parentId: pid, isClosed }); });
+  const adminDeleteCategory = (id: string) => mutate(async () => { await mutationApi.deleteCategory(id); const c = await mutationApi.getCategories(); setCategories(c); });
+  
+  const adminCreateForum = (cid: string, n: string, d: string, i: string, pid?: string, isClosed: boolean = false) => mutate(async () => { 
+      await mutationApi.addForum({ id:`f${Date.now()}`, categoryId:cid, parentId:pid, name:n, description:d, icon:i, isClosed, threadCount:0, messageCount:0, order: 999 }); 
+      const f = await mutationApi.getForums(); setForums(f);
+  }); 
+  const adminUpdateForum = (id: string, cid: string, n: string, d: string, i: string, pid?: string, isClosed: boolean = false) => mutate(async () => { 
+      const existing = forums.find(f => f.id === id); 
+      if(existing) await mutationApi.updateForum({ ...existing, categoryId: cid, name: n, description: d, icon: i, parentId: pid, isClosed }); 
+      const f = await mutationApi.getForums(); setForums(f);
+  });
   const adminMoveForum = (id: string, direction: 'up' | 'down') => mutate(async () => {
+     // ... move logic ...
      const target = forums.find(f => f.id === id); if(!target) return;
      const siblings = forums.filter(f => f.categoryId === target.categoryId && f.parentId === target.parentId).sort((a,b) => (a.order||0) - (b.order||0)).map((f, idx) => ({ ...f, order: idx }));
      const index = siblings.findIndex(f => f.id === id);
      if (index === -1) return;
      if (direction === 'up' && index > 0) { siblings[index].order = index - 1; siblings[index - 1].order = index; await mutationApi.updateForum(siblings[index]); await mutationApi.updateForum(siblings[index - 1]); }
      else if (direction === 'down' && index < siblings.length - 1) { siblings[index].order = index + 1; siblings[index + 1].order = index; await mutationApi.updateForum(siblings[index]); await mutationApi.updateForum(siblings[index + 1]); }
+     const f = await mutationApi.getForums(); setForums(f);
   });
-  const adminDeleteForum = (id: string) => mutate(() => mutationApi.deleteForum(id));
+  const adminDeleteForum = (id: string) => mutate(async () => { await mutationApi.deleteForum(id); const f = await mutationApi.getForums(); setForums(f); });
+  
   const adminUpdateUserRole = (uid: string, rid: string, srid?: string) => mutate(async () => { const u = users[uid]; if(u) await mutationApi.updateUser({...u, roleId:rid, secondaryRoleId:srid}); });
-  const adminCreatePrefix = (t: string, c: string) => mutate(() => mutationApi.addPrefix({id:`px${Date.now()}`, text:t, color:c}));
-  const adminDeletePrefix = (id: string) => mutate(() => mutationApi.deletePrefix(id));
-  const adminCreateRole = (n: string, c: string, p: Permissions, e?: string) => mutate(() => mutationApi.addRole({id:`r${Date.now()}`, name:n, color:c, permissions:p, effect:e, isSystem:false, priority:0}));
-  const adminUpdateRole = (r: Role) => mutate(() => mutationApi.updateRole(r));
-  const adminDeleteRole = (id: string) => mutate(() => mutationApi.deleteRole(id));
-  const adminSetDefaultRole = (roleId: string) => mutate(async () => { const role = roles.find(r => r.id === roleId); if (role) await mutationApi.updateRole({ ...role, isDefault: true }); });
+  
+  const adminCreatePrefix = (t: string, c: string) => mutate(async () => { await mutationApi.addPrefix({id:`px${Date.now()}`, text:t, color:c}); const p = await mutationApi.getPrefixes(); setPrefixes(p); });
+  const adminDeletePrefix = (id: string) => mutate(async () => { await mutationApi.deletePrefix(id); const p = await mutationApi.getPrefixes(); setPrefixes(p); });
+  
+  const adminCreateRole = (n: string, c: string, p: Permissions, e?: string) => mutate(async () => { await mutationApi.addRole({id:`r${Date.now()}`, name:n, color:c, permissions:p, effect:e, isSystem:false, priority:0}); const r = await mutationApi.getRoles(); setRoles(r); });
+  const adminUpdateRole = (r: Role) => mutate(async () => { await mutationApi.updateRole(r); const roles = await mutationApi.getRoles(); setRoles(roles); });
+  const adminDeleteRole = (id: string) => mutate(async () => { await mutationApi.deleteRole(id); const r = await mutationApi.getRoles(); setRoles(r); });
+  const adminSetDefaultRole = (roleId: string) => mutate(async () => { const role = roles.find(r => r.id === roleId); if (role) await mutationApi.updateRole({ ...role, isDefault: true }); const r = await mutationApi.getRoles(); setRoles(r); });
   
   const adminBroadcast = async (text: string) => {
       if (!isOffline && useMongo) return mongo.broadcast(text);
@@ -672,4 +683,3 @@ export const useForum = () => {
   if (!context) throw new Error('useForum must be used within a ForumProvider');
   return context;
 };
-

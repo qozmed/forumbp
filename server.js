@@ -193,7 +193,8 @@ const UserSchema = new mongoose.Schema({
   signature: String,
   lastUsernameChange: { type: String, default: '' },
   notifications: { type: Array, default: [] },
-  lastActiveAt: String,
+  // OPTIMIZED: Index on lastActiveAt for fast sorting of active users
+  lastActiveAt: { type: String, index: true },
   currentActivity: Object, 
   ipHistory: { type: [String], select: false },
   telegramId: { type: String, index: true },

@@ -2,8 +2,9 @@ import React, { useMemo } from 'react';
 
 const Particles: React.FC = () => {
   // Generate particles once. CSS handles the animation on the GPU/Compositor thread.
+  // REDUCED COUNT from 30 to 15 for Performance
   const particles = useMemo(() => {
-    return Array.from({ length: 30 }).map((_, i) => {
+    return Array.from({ length: 15 }).map((_, i) => {
       const size = Math.random() * 3 + 1;
       const left = Math.random() * 100;
       const duration = Math.random() * 20 + 10; // 10-30s
