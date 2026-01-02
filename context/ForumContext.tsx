@@ -471,17 +471,40 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     loadPostsForThread(tid);
   });
 
-  const editPost = (pid: string, content: string) => mutate(() => mutationApi.updatePost({ ...posts.find(p=>p.id===pid)!, content }));
+  // OPTIMIZED EDIT POST (Local Update Only)
+  const editPost = async (pid: string, content: string) => {
+      try {
+          const post = posts.find(p => p.id === pid);
+          if (!post) return;
+          const updatedPost = { ...post, content };
+          
+          // Optimistic UI Update
+          setPosts(prev => prev.map(p => p.id === pid ? updatedPost : p));
+          
+          await mutationApi.updatePost(updatedPost);
+      } catch (e) {
+          alert("Ошибка редактирования");
+      }
+  };
+
   const deletePost = (pid: string) => mutate(() => mutationApi.deletePost(pid));
+  
+  // OPTIMIZED LIKE TOGGLE (Local Update Only)
   const toggleLike = async (pid: string) => {
      if(!currentUser) return;
      const post = posts.find(p => p.id === pid);
      if(!post) return;
+     
      const liked = post.likedBy?.includes(currentUser.id);
      const newLikedBy = liked ? post.likedBy.filter(id => id !== currentUser.id) : [...(post.likedBy||[]), currentUser.id];
      const newPost = { ...post, likedBy: newLikedBy, likes: newLikedBy.length };
-     setPosts(prev => prev.map(p => p.id === pid ? newPost : p)); // Optimistic UI
+     
+     // Optimistic UI
+     setPosts(prev => prev.map(p => p.id === pid ? newPost : p)); 
+     
+     // Send to DB
      await mutationApi.updatePost(newPost);
+     
      if (!liked) {
         const author = users[post.authorId];
         if (author) {

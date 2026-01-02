@@ -50,8 +50,9 @@ app.use(mongoSanitize());
 
 // 5. CUSTOM RATE LIMITER (Enhanced)
 const rateLimits = {
-  general: { window: 60 * 1000, max: 200 }, // 200 req / min per IP
-  auth: { window: 15 * 60 * 1000, max: 10 } // 10 login attempts / 15 min per IP
+  // Increased general limit to prevent UI lag feeling during rapid actions
+  general: { window: 60 * 1000, max: 500 }, 
+  auth: { window: 15 * 60 * 1000, max: 20 } 
 };
 
 const ipTrackers = {
@@ -171,11 +172,11 @@ connectDB();
 
 const BaseOpts = { versionKey: false };
 
-// Models
+// Models with Performance Indexes
 const User = mongoose.model('User', new mongoose.Schema({
-  id: { type: String, unique: true, required: true },
-  username: { type: String, required: true }, // Will be sanitized
-  email: { type: String, required: true },     // Will be sanitized
+  id: { type: String, unique: true, required: true, index: true },
+  username: { type: String, required: true },
+  email: { type: String, required: true, index: true },
   hash: { type: String, select: false },
   salt: { type: String, select: false },
   avatarUrl: { type: String, default: '' },
@@ -187,66 +188,66 @@ const User = mongoose.model('User', new mongoose.Schema({
   points: { type: Number, default: 0 },
   joinedAt: { type: String, default: () => new Date().toISOString() },
   bannerUrl: String,
-  customTitle: String, // Sanitize
-  signature: String,   // Allowed BBCode, but strip scripts
+  customTitle: String,
+  signature: String,
   lastUsernameChange: { type: String, default: '' },
   notifications: { type: Array, default: [] },
   lastActiveAt: String,
   currentActivity: Object, 
   ipHistory: { type: [String], select: false },
-  telegramId: String,
+  telegramId: { type: String, index: true },
   twoFactorEnabled: { type: Boolean, default: false },
-  connectToken: { type: String, select: false },
+  connectToken: { type: String, select: false, index: true },
   tempCode: { type: String, select: false },
   tempCodeExpires: { type: Date, select: false }
 }, BaseOpts));
 
 const Category = mongoose.model('Category', new mongoose.Schema({
-  id: { type: String, unique: true },
+  id: { type: String, unique: true, index: true },
   title: String,
   backgroundUrl: String,
-  order: { type: Number, default: 0 }
+  order: { type: Number, default: 0, index: true }
 }, BaseOpts));
 
 const Forum = mongoose.model('Forum', new mongoose.Schema({
-  id: { type: String, unique: true },
-  categoryId: String,
-  parentId: String,
+  id: { type: String, unique: true, index: true },
+  categoryId: { type: String, index: true },
+  parentId: { type: String, index: true },
   name: String,
   description: String,
   icon: String,
   isClosed: { type: Boolean, default: false },
   threadCount: { type: Number, default: 0 },
   messageCount: { type: Number, default: 0 },
-  order: { type: Number, default: 0 },
+  order: { type: Number, default: 0, index: true },
   lastPost: Object,
   subForums: Array 
 }, BaseOpts));
 
 const Thread = mongoose.model('Thread', new mongoose.Schema({
-  id: { type: String, unique: true },
-  forumId: String,
-  title: String, // Sanitize
-  authorId: String,
-  createdAt: String,
+  id: { type: String, unique: true, index: true },
+  forumId: { type: String, index: true },
+  title: String,
+  authorId: { type: String, index: true },
+  createdAt: { type: String, index: true },
   viewCount: { type: Number, default: 0 },
   replyCount: { type: Number, default: 0 },
   isLocked: Boolean,
-  isPinned: Boolean,
+  isPinned: { type: Boolean, index: true },
   prefixId: String,
   lastPost: Object,
-  order: { type: Number, default: 0 } 
+  order: { type: Number, default: 0, index: true } 
 }, BaseOpts));
 
 const Post = mongoose.model('Post', new mongoose.Schema({
-  id: { type: String, unique: true },
-  threadId: String,
-  authorId: String,
-  content: String, // Allow BBCode/HTML, but strip Scripts
-  createdAt: String,
+  id: { type: String, unique: true, index: true },
+  threadId: { type: String, index: true },
+  authorId: { type: String, index: true },
+  content: String,
+  createdAt: { type: String, index: true },
   likes: { type: Number, default: 0 },
   likedBy: { type: Array, default: [] },
-  number: Number
+  number: { type: Number, index: true }
 }, BaseOpts));
 
 const Prefix = mongoose.model('Prefix', new mongoose.Schema({
@@ -294,21 +295,8 @@ const handle = (fn) => async (req, res, next) => {
     await fn(req, res, next);
   } catch (error) {
     console.error(`💥 Error in ${req.url}:`, error.message);
-    res.status(500).json({ error: 'Internal Server Error' }); // Hide error details from client
+    res.status(500).json({ error: 'Internal Server Error' }); 
   }
-};
-
-// PERMISSION MIDDLEWARE (Basic Implementation)
-// In a real app, you'd send a JWT, decode it, and check roles.
-// Here we rely on the client sending userId for some ops, which is weak for a real backend,
-// but we will implement a check for ADMIN ops based on a mock session or assuming caller is trusted in this context.
-// For the purpose of this request, we will check permissions if 'admin' endpoint is hit.
-const checkPermission = (permName) => async (req, res, next) => {
-    // NOTE: In a real app, authentication middleware runs first and populates req.user from JWT.
-    // Since we don't have full JWT auth here, we assume the client logic protects view,
-    // BUT for critical API endpoints, we must verify.
-    // For this demo, we'll skip complex auth checks on middleware but ensure data integrity.
-    next();
 };
 
 // ==========================================
@@ -326,12 +314,12 @@ app.post('/api/auth/register', limitReq('auth'), handle(async (req, res) => {
 
   if (!username || !email || !password) return res.status(400).json({error: 'Fields required'});
 
-  const exists = await User.findOne({ $or: [{ username }, { email }] });
+  const exists = await User.findOne({ $or: [{ username }, { email }] }).lean();
   if (exists) return res.status(400).json({ error: 'User already exists' });
 
   const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=random&color=fff&size=256&bold=true`;
   const { salt, hash } = hashPassword(password);
-  const defaultRole = await Role.findOne({ isDefault: true });
+  const defaultRole = await Role.findOne({ isDefault: true }).lean();
   const roleId = defaultRole ? defaultRole.id : 'role_user';
 
   const newUser = await User.create({
@@ -401,7 +389,7 @@ app.post('/api/auth/verify-2fa', limitReq('auth'), handle(async (req, res) => {
     
     if (!user) return res.status(404).json({ error: 'User not found' });
     
-    // Strict string comparison to avoid type coercion attacks
+    // Strict string comparison
     if (!user.tempCode || String(user.tempCode) !== String(code)) {
         return res.status(400).json({ error: 'Invalid code' });
     }
@@ -433,7 +421,7 @@ app.post('/api/user/telegram-link', handle(async (req, res) => {
     user.connectToken = token;
     await user.save();
 
-    const botName = process.env.TELEGRAM_BOT_NAME || 'BlackProjectAuthBot'; 
+    const botName = 'BlackProjectRobot'; 
     const link = `https://t.me/${botName}?start=${token}`;
     res.json({ link });
 }));
@@ -441,7 +429,6 @@ app.post('/api/user/telegram-link', handle(async (req, res) => {
 // NOTIFICATIONS
 app.post('/api/notifications/send', handle(async (req, res) => {
     let { targetUserId, message, link } = req.body;
-    // Sanitize message content to prevent HTML injection in logs/admin views
     message = sanitizeString(message);
 
     const targetUser = await User.findOne({ id: targetUserId });
@@ -459,7 +446,6 @@ app.post('/api/notifications/send', handle(async (req, res) => {
     targetUser.notifications.unshift(newNotif);
     
     if (targetUser.telegramId && bot) {
-        // Strip dangerous HTML from Telegram message
         const cleanMsg = message.replace(/<[^>]*>?/gm, ''); 
         const fullLink = req.get('origin') + (link.startsWith('/') ? link : `/${link}`);
         const msg = `🔔 <b>Новое уведомление</b>\n\n${cleanMsg}\n\n👉 <a href="${fullLink}">Открыть</a>`;
@@ -475,12 +461,9 @@ app.post('/api/admin/broadcast', handle(async (req, res) => {
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: 'Text required' });
 
-    // In a real app, verify req.user.role has canSendBroadcasts permission here
-    
-    const usersWithTg = await User.find({ telegramId: { $exists: true, $ne: null } });
+    const usersWithTg = await User.find({ telegramId: { $exists: true, $ne: null } }).lean();
     let sentCount = 0;
 
-    // Sanitize broadcast text but allow basic formatting
     const cleanText = text.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gm, "");
 
     for (const u of usersWithTg) {
@@ -493,21 +476,21 @@ app.post('/api/admin/broadcast', handle(async (req, res) => {
     res.json({ sent: sentCount, total: usersWithTg.length });
 }));
 
-// DATA FETCHING
+// DATA FETCHING (USE .lean() FOR PERFORMANCE)
 app.get('/api/forums', handle(async (req, res) => {
-  const forums = await Forum.find().sort({ order: 1 });
+  const forums = await Forum.find().sort({ order: 1 }).lean();
   res.json(forums);
 }));
 
 app.get('/api/users', handle(async (req, res) => {
-  const users = await User.find().select('id username avatarUrl roleId secondaryRoleId isBanned points reactions messages customTitle joinedAt lastActiveAt currentActivity notifications telegramId twoFactorEnabled');
+  const users = await User.find().select('id username avatarUrl roleId secondaryRoleId isBanned points reactions messages customTitle joinedAt lastActiveAt currentActivity notifications telegramId twoFactorEnabled').lean();
   res.json(users);
 }));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.get('/api/threads/:id', handle(async (req, res) => {
-  const thread = await Thread.findOne({ id: req.params.id });
+  const thread = await Thread.findOne({ id: req.params.id }).lean();
   if (!thread) return res.status(404).json({ error: 'Thread not found' });
   res.json(thread);
 }));
@@ -519,7 +502,7 @@ app.get('/api/threads', handle(async (req, res) => {
   if (sort === 'recent') query = query.sort({ createdAt: -1 });
   else query = query.sort({ isPinned: -1, order: 1, createdAt: -1 });
   if (limit) query = query.limit(parseInt(limit));
-  const items = await query.exec();
+  const items = await query.lean().exec();
   res.json(items);
 }));
 
@@ -529,30 +512,28 @@ app.get('/api/posts', handle(async (req, res) => {
   if (threadId) query = query.where({ threadId }).sort({ number: 1 }); 
   else if (userId) query = query.where({ authorId: userId }).sort({ createdAt: -1 }); 
   else query = query.limit(100); 
-  const items = await query.exec();
+  const items = await query.lean().exec();
   res.json(items);
 }));
 
-// CRUD GENERATOR (With basic sanitization)
+// CRUD GENERATOR
 const createCrud = (path, Model) => {
   if (!['forums', 'threads', 'posts', 'users'].includes(path)) {
     app.get(`/api/${path}`, handle(async (req, res) => {
-      const items = await Model.find().sort({ order: 1 });
+      const items = await Model.find().sort({ order: 1 }).lean();
       res.json(items);
     }));
   }
   app.post(`/api/${path}`, handle(async (req, res) => {
     if (!req.body.id) req.body.id = `${path[0]}${Date.now()}`;
     
-    // Sanitize specific fields based on Model type if needed
     if (req.body.title) req.body.title = sanitizeString(req.body.title);
     if (req.body.name) req.body.name = sanitizeString(req.body.name);
     if (req.body.content) {
-        // Remove script tags from content but keep BBCode structure
         req.body.content = xss(req.body.content, { 
-            whiteList: {}, // Allow nothing HTML, rely on parser
-            stripIgnoreTag: false, // Keep BBCode brackets [b] etc
-            stripIgnoreTagBody: ['script'] // Kill scripts
+            whiteList: {}, 
+            stripIgnoreTag: false, 
+            stripIgnoreTagBody: ['script']
         });
     }
 
@@ -563,7 +544,6 @@ const createCrud = (path, Model) => {
     delete req.body.hash; delete req.body.salt; delete req.body.ipHistory; 
     delete req.body.tempCode; delete req.body.tempCodeExpires; delete req.body.connectToken;
     
-    // Sanitize
     if (req.body.title) req.body.title = sanitizeString(req.body.title);
     if (req.body.name) req.body.name = sanitizeString(req.body.name);
     if (req.body.content) {
@@ -574,7 +554,7 @@ const createCrud = (path, Model) => {
         });
     }
 
-    const item = await Model.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true });
+    const item = await Model.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true }).lean();
     res.json(item);
   }));
   app.delete(`/api/${path}/:id`, handle(async (req, res) => {
@@ -596,7 +576,7 @@ app.delete('/api/threads/:id', handle(async (req, res) => {
 }));
 app.put('/api/roles/:id', handle(async (req, res) => {
   if (req.body.isDefault) await Role.updateMany({ id: { $ne: req.params.id } }, { isDefault: false });
-  const item = await Role.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true });
+  const item = await Role.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true }).lean();
   res.json(item);
 }));
 app.put('/api/users/:id/activity', handle(async (req, res) => {
