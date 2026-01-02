@@ -562,22 +562,57 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   });
   
   const toggleLike = async (pid: string) => {
-     if(!currentUser) return;
+     if(!currentUser) {
+       console.warn('Cannot like: no current user');
+       return;
+     }
+     
      const post = posts.find(p => p.id === pid);
-     if(!post) return;
+     if(!post) {
+       console.warn('Cannot like: post not found', pid);
+       return;
+     }
      
-     const liked = post.likedBy?.includes(currentUser.id);
-     const newLikedBy = liked ? post.likedBy.filter(id => id !== currentUser.id) : [...(post.likedBy||[]), currentUser.id];
-     const newPost = { ...post, likedBy: newLikedBy, likes: newLikedBy.length };
-     
-     setPosts(prev => prev.map(p => p.id === pid ? newPost : p)); 
-     await mutationApi.updatePost(newPost);
-     
-     if (!liked) {
-        const author = users[post.authorId];
-        if (author) {
-            await mutationApi.updateUser({ ...author, reactions: (author.reactions || 0) + 1, points: (author.points || 0) + 1 });
-        }
+     try {
+       const liked = post.likedBy?.includes(currentUser.id) || false;
+       const currentLikedBy = post.likedBy || [];
+       const newLikedBy = liked 
+         ? currentLikedBy.filter(id => id !== currentUser.id) 
+         : [...currentLikedBy, currentUser.id];
+       const newPost = { ...post, likedBy: newLikedBy, likes: newLikedBy.length };
+       
+       // Optimistic update
+       setPosts(prev => prev.map(p => p.id === pid ? newPost : p)); 
+       
+       // Update in background
+       try {
+         await mutationApi.updatePost(newPost);
+         
+         // Update author stats if liked (not if unliked)
+         if (!liked) {
+           const author = users[post.authorId];
+           if (author) {
+             const updatedAuthor = { 
+               ...author, 
+               reactions: (author.reactions || 0) + 1, 
+               points: (author.points || 0) + 1 
+             };
+             setUsers(prev => ({ ...prev, [author.id]: updatedAuthor }));
+             if (currentUser && currentUser.id === author.id) {
+               setCurrentUser(updatedAuthor);
+             }
+             await mutationApi.updateUser(updatedAuthor);
+           }
+         }
+       } catch (error) {
+         console.error('Error updating post like:', error);
+         // Revert optimistic update on error
+         setPosts(prev => prev.map(p => p.id === pid ? post : p));
+         throw error;
+       }
+     } catch (error) {
+       console.error('Error in toggleLike:', error);
+       throw error;
      }
   };
 

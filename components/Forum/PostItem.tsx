@@ -4,7 +4,7 @@ import { useForum } from '../../context/ForumContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { formatDate } from '../../utils/date';
 import { parseBBCodeToHtml } from '../../utils/bbCodeParser';
-import { Heart, Copy, CornerDownRight, Pencil, X, Check, Trash2 } from 'lucide-react';
+import { Heart, Copy, Pencil, X, Check, Trash2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import BBCodeEditor from '../UI/BBCodeEditor';
 import RoleBadge from '../UI/RoleBadge';
@@ -13,7 +13,7 @@ interface Props {
   post: Post;
 }
 
-const PostItem: React.FC<Props> = React.memo(({ post }) => {
+const PostItem: React.FC<Props> = ({ post }) => {
   const { getUser, currentUser, toggleLike, users, editPost, deletePost, getUserRoles, hasPermission, getThread } = useForum();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
@@ -233,20 +233,26 @@ const PostItem: React.FC<Props> = React.memo(({ post }) => {
                       <Pencil className="w-3.5 h-3.5" /> <span className="hidden md:inline">{t('general.edit')}</span>
                     </button>
                   )}
-                  <button 
-                    onClick={() => toggleLike(post.id)}
-                    className={`flex items-center gap-1.5 text-xs font-medium px-2 md:px-3 py-1.5 rounded transition-all ${
-                      isLiked 
-                        ? 'bg-white text-black border border-white' 
-                        : 'text-gray-400 hover:text-white hover:bg-[#222]'
-                    }`}
-                  >
-                     <Heart className={`w-3.5 h-3.5 ${isLiked ? 'fill-black' : ''}`} /> 
-                     <span className="hidden md:inline">{t('general.like')}</span>
-                  </button>
-                  <button className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#222] px-2 md:px-3 py-1.5 rounded transition-all">
-                     <CornerDownRight className="w-3.5 h-3.5" /> <span className="hidden md:inline">{t('general.quote')}</span>
-                  </button>
+                  {currentUser && (
+                    <button 
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleLike(post.id).catch(err => {
+                          console.error('Error toggling like:', err);
+                        });
+                      }}
+                      className={`flex items-center gap-1.5 text-xs font-medium px-2 md:px-3 py-1.5 rounded transition-all cursor-pointer ${
+                        isLiked 
+                          ? 'bg-white text-black border border-white' 
+                          : 'text-gray-400 hover:text-white hover:bg-[#222]'
+                      }`}
+                      type="button"
+                    >
+                       <Heart className={`w-3.5 h-3.5 ${isLiked ? 'fill-black' : ''}`} /> 
+                       <span className="hidden md:inline">{t('general.like')}</span>
+                    </button>
+                  )}
                </div>
             </div>
           </div>
@@ -254,6 +260,6 @@ const PostItem: React.FC<Props> = React.memo(({ post }) => {
       </div>
     </div>
   );
-});
+};
 
 export default PostItem;

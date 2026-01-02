@@ -290,22 +290,160 @@ if (TELEGRAM_TOKEN) {
       console.error('Telegram Polling Error:', error.message);
     });
     console.log('🤖 Telegram Bot Started');
+
+    // Helper function to get user by telegramId
+    const getUserByTelegramId = async (telegramId) => {
+      return await User.findOne({ telegramId: telegramId.toString() }).lean();
+    };
+
+    // Command: /start with token (link account)
     bot.onText(/\/start (.+)/, async (msg, match) => {
         const chatId = msg.chat.id;
         const token = match[1]; 
-        if (!token) return;
+        if (!token) {
+          queueTelegramMessage(chatId, `👋 <b>Добро пожаловать!</b>\n\nДля привязки аккаунта используйте ссылку из настроек форума.\n\nИспользуйте /help для списка команд.`, { parse_mode: 'HTML' });
+          return;
+        }
         try {
             const user = await User.findOne({ connectToken: token });
             if (user) {
+                // Check if this telegramId is already linked to another account
+                const existingUser = await getUserByTelegramId(chatId);
+                if (existingUser && existingUser.id !== user.id) {
+                  queueTelegramMessage(chatId, `⚠️ Этот Telegram аккаунт уже привязан к другому пользователю форума.`, { parse_mode: 'HTML' });
+                  return;
+                }
+
                 user.telegramId = chatId.toString();
                 user.connectToken = undefined; 
                 await user.save();
-                queueTelegramMessage(chatId, `✅ <b>Аккаунт успешно привязан!</b>`, { parse_mode: 'HTML' });
+                
+                const welcomeMsg = `✅ <b>Аккаунт успешно привязан!</b>\n\n` +
+                  `👤 Пользователь: <b>${user.username}</b>\n` +
+                  `📧 Email: ${user.email}\n\n` +
+                  `Теперь вы будете получать уведомления и коды 2FA в этом чате.\n\n` +
+                  `Используйте /help для списка команд.`;
+                
+                queueTelegramMessage(chatId, welcomeMsg, { parse_mode: 'HTML' });
             } else {
-                queueTelegramMessage(chatId, `❌ Неверный токен.`);
+                queueTelegramMessage(chatId, `❌ Неверный или истекший токен привязки.\n\nПолучите новую ссылку в настройках форума.`, { parse_mode: 'HTML' });
             }
-        } catch (e) { console.error('Bot Error:', e); }
+        } catch (e) { 
+          console.error('Bot Error:', e);
+          queueTelegramMessage(chatId, `❌ Произошла ошибка при привязке аккаунта. Попробуйте позже.`, { parse_mode: 'HTML' });
+        }
     });
+
+    // Command: /start without token
+    bot.onText(/^\/start$/, async (msg) => {
+      const chatId = msg.chat.id;
+      const user = await getUserByTelegramId(chatId);
+      
+      if (user) {
+        const statusMsg = `👋 <b>Добро пожаловать обратно, ${user.username}!</b>\n\n` +
+          `Ваш аккаунт привязан к форуму.\n` +
+          `Используйте /help для списка команд.`;
+        queueTelegramMessage(chatId, statusMsg, { parse_mode: 'HTML' });
+      } else {
+        queueTelegramMessage(chatId, `👋 <b>Добро пожаловать!</b>\n\nДля привязки аккаунта используйте ссылку из настроек форума.\n\nИспользуйте /help для списка команд.`, { parse_mode: 'HTML' });
+      }
+    });
+
+    // Command: /help
+    bot.onText(/^\/help$/, async (msg) => {
+      const chatId = msg.chat.id;
+      const user = await getUserByTelegramId(chatId);
+      
+      let helpMsg = `📖 <b>Список команд:</b>\n\n`;
+      
+      if (user) {
+        helpMsg += `✅ Ваш аккаунт привязан: <b>${user.username}</b>\n\n`;
+        helpMsg += `/status - Проверить статус привязки\n`;
+        helpMsg += `/2fa - Управление двухфакторной аутентификацией\n`;
+        helpMsg += `/unlink - Отвязать аккаунт от Telegram\n`;
+      } else {
+        helpMsg += `❌ Аккаунт не привязан\n\n`;
+        helpMsg += `Для привязки получите ссылку в настройках форума и используйте /start [ссылка]\n`;
+      }
+      
+      helpMsg += `\n/help - Показать это сообщение`;
+      
+      queueTelegramMessage(chatId, helpMsg, { parse_mode: 'HTML' });
+    });
+
+    // Command: /status
+    bot.onText(/^\/status$/, async (msg) => {
+      const chatId = msg.chat.id;
+      const user = await getUserByTelegramId(chatId);
+      
+      if (user) {
+        const statusMsg = `📊 <b>Статус аккаунта</b>\n\n` +
+          `👤 Пользователь: <b>${user.username}</b>\n` +
+          `📧 Email: ${user.email}\n` +
+          `🔐 2FA: ${user.twoFactorEnabled ? '✅ Включена' : '❌ Выключена'}\n` +
+          `📅 Регистрация: ${new Date(user.joinedAt).toLocaleDateString('ru-RU')}\n` +
+          `💬 Сообщений: ${user.messages || 0}\n` +
+          `⭐ Очки: ${user.points || 0}`;
+        
+        queueTelegramMessage(chatId, statusMsg, { parse_mode: 'HTML' });
+      } else {
+        queueTelegramMessage(chatId, `❌ Ваш Telegram аккаунт не привязан к форуму.\n\nПолучите ссылку привязки в настройках форума.`, { parse_mode: 'HTML' });
+      }
+    });
+
+    // Command: /2fa
+    bot.onText(/^\/2fa$/, async (msg) => {
+      const chatId = msg.chat.id;
+      const user = await getUserByTelegramId(chatId);
+      
+      if (!user) {
+        queueTelegramMessage(chatId, `❌ Ваш аккаунт не привязан. Сначала привяжите аккаунт через /start [ссылка]`, { parse_mode: 'HTML' });
+        return;
+      }
+
+      const status = user.twoFactorEnabled ? 'включена' : 'выключена';
+      const statusEmoji = user.twoFactorEnabled ? '✅' : '❌';
+      
+      const faqMsg = `${statusEmoji} <b>Двухфакторная аутентификация (2FA)</b>\n\n` +
+        `Текущий статус: <b>${status}</b>\n\n` +
+        `Для включения/выключения 2FA перейдите в настройки форума:\n` +
+        `Настройки → Безопасность и Telegram → Включить 2FA\n\n` +
+        `При включенной 2FA при каждом входе на форум вам будет отправляться код подтверждения в этот чат.`;
+      
+      queueTelegramMessage(chatId, faqMsg, { parse_mode: 'HTML' });
+    });
+
+    // Command: /unlink
+    bot.onText(/^\/unlink$/, async (msg) => {
+      const chatId = msg.chat.id;
+      const user = await getUserByTelegramId(chatId);
+      
+      if (!user) {
+        queueTelegramMessage(chatId, `❌ Ваш аккаунт не привязан.`, { parse_mode: 'HTML' });
+        return;
+      }
+
+      try {
+        await User.updateOne({ id: user.id }, { 
+          $unset: { telegramId: "", connectToken: "" },
+          twoFactorEnabled: false // Disable 2FA when unlinking
+        });
+        
+        queueTelegramMessage(chatId, `✅ Аккаунт <b>${user.username}</b> успешно отвязан от Telegram.\n\n2FA автоматически отключена.`, { parse_mode: 'HTML' });
+      } catch (e) {
+        console.error('Unlink error:', e);
+        queueTelegramMessage(chatId, `❌ Произошла ошибка при отвязке аккаунта.`, { parse_mode: 'HTML' });
+      }
+    });
+
+    // Handle unknown commands
+    bot.on('message', async (msg) => {
+      if (msg.text && msg.text.startsWith('/') && !msg.text.match(/^\/(start|help|status|2fa|unlink)/)) {
+        const chatId = msg.chat.id;
+        queueTelegramMessage(chatId, `❓ Неизвестная команда. Используйте /help для списка доступных команд.`, { parse_mode: 'HTML' });
+      }
+    });
+
   } catch (e) { console.error('Failed to start Telegram Bot:', e.message); }
 }
 
