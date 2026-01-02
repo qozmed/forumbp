@@ -54,6 +54,8 @@ interface ForumContextType {
   updateUserActivity: (activity: UserActivity) => Promise<void>;
   banUser: (userId: string, isBanned: boolean) => Promise<void>;
   markNotificationsRead: () => Promise<void>;
+  clearNotifications: () => Promise<void>; // NEW
+  deleteNotification: (id: string) => Promise<void>; // NEW
   adminCreateCategory: (title: string, backgroundUrl: string) => Promise<void>;
   adminUpdateCategory: (id: string, title: string, backgroundUrl: string) => Promise<void>;
   adminMoveCategory: (id: string, direction: 'up' | 'down') => Promise<void>; 
@@ -488,7 +490,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const toggleThreadPin = (tid: string) => mutate(async () => { const t = getThread(tid); if(t) await mutationApi.updateThread({...t, isPinned: !t.isPinned}); });
   const updateUser = (u: User) => mutate(() => mutationApi.updateUser(u));
   const banUser = (uid: string, v: boolean) => mutate(async () => { const u = users[uid]; if(u) await mutationApi.updateUser({...u, isBanned: v}); });
+  
   const markNotificationsRead = () => mutate(async () => { if(currentUser) await mutationApi.updateUser({...currentUser, notifications: currentUser.notifications.map(n=>({...n, isRead:true}))}); });
+  const clearNotifications = () => mutate(async () => { if(currentUser) await mutationApi.updateUser({...currentUser, notifications: []}); });
+  const deleteNotification = (id: string) => mutate(async () => { if(currentUser) await mutationApi.updateUser({...currentUser, notifications: currentUser.notifications.filter(n => n.id !== id)}); });
 
   // Admin Actions
   const adminCreateCategory = (t: string, b: string) => mutate(() => mutationApi.addCategory({id:`c${Date.now()}`, title:t, backgroundUrl:b, order: categories.length}));
@@ -553,7 +558,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       getForum, getThread, getPostsByThread, getPostsByUser, getForumsByCategory, getSubForums, getUser, getUserRole, getUserRoles, hasPermission,
       login, register, logout,
       createThread, updateThread, deleteThread, replyToThread, editPost, deletePost, toggleLike, toggleThreadLock, toggleThreadPin,
-      updateUser, updateUserActivity, banUser, markNotificationsRead,
+      updateUser, updateUserActivity, banUser, markNotificationsRead, clearNotifications, deleteNotification,
       adminCreateCategory, adminUpdateCategory, adminMoveCategory, adminDeleteCategory, 
       adminCreateForum, adminUpdateForum, adminMoveForum, adminDeleteForum, adminUpdateUserRole,
       adminMoveThread, adminReorderThread,

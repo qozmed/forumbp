@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Component, ReactNode } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ForumProvider, useForum } from './context/ForumContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
@@ -15,9 +15,18 @@ import UserProfile from './pages/UserProfile';
 import ActivityTracker from './components/Layout/ActivityTracker';
 import { AlertTriangle, Home as HomeIcon } from 'lucide-react';
 
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: any;
+}
+
 // Simple Error Boundary Component
-class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
-  constructor(props: any) {
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false, error: null };
   }

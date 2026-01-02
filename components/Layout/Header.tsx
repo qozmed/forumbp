@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Search, LogIn, Bell, Globe, Settings, Shield, LogOut, CheckCheck, Menu, X } from 'lucide-react';
+import { Search, LogIn, Bell, Globe, Settings, Shield, LogOut, CheckCheck, Menu, X, Trash2 } from 'lucide-react';
 import { useForum } from '../../context/ForumContext';
 import { useLanguage } from '../../context/LanguageContext';
 import AuthModal from '../Auth/AuthModal';
@@ -8,11 +8,11 @@ import AuthModal from '../Auth/AuthModal';
 // ==========================================
 // НАСТРОЙКА ЛОГОТИПА / LOGO CONFIGURATION
 // ==========================================
-const LOGO_IMAGE_URL = 'https://i.ibb.co/1t5BJ7QD/logofullb.png'; 
+const LOGO_IMAGE_URL = 'https://i.ibb.co/VWmCjBm2/logofullb.png'; 
 // ==========================================
 
 const Header: React.FC = () => {
-  const { currentUser, logout, markNotificationsRead, userRole, hasPermission } = useForum();
+  const { currentUser, logout, markNotificationsRead, clearNotifications, deleteNotification, userRole, hasPermission } = useForum();
   const { language, setLanguage, t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
@@ -156,14 +156,26 @@ const Header: React.FC = () => {
                        <div className="absolute right-0 mt-4 w-72 md:w-80 bg-[#111] border border-[#333] shadow-2xl rounded-lg overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
                           <div className="p-3 bg-[#0a0a0a] border-b border-[#333] font-bold text-sm text-white flex justify-between items-center">
                             <span>{t('notifications.title')}</span>
-                            {unreadCount > 0 && (
-                              <button 
-                                onClick={() => markNotificationsRead()} 
-                                className="text-xs text-gray-400 hover:text-white flex items-center gap-1"
-                              >
-                                <CheckCheck className="w-3 h-3" /> {t('notifications.markRead')}
-                              </button>
-                            )}
+                            <div className="flex gap-2">
+                               {unreadCount > 0 && (
+                                 <button 
+                                   onClick={() => markNotificationsRead()} 
+                                   className="text-xs text-gray-400 hover:text-white p-1 rounded hover:bg-[#222]"
+                                   title={t('notifications.markRead')}
+                                 >
+                                   <CheckCheck className="w-4 h-4" />
+                                 </button>
+                               )}
+                               {currentUser.notifications.length > 0 && (
+                                 <button 
+                                   onClick={() => clearNotifications()} 
+                                   className="text-xs text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-900/20"
+                                   title={t('notifications.deleteAll')}
+                                 >
+                                   <Trash2 className="w-4 h-4" />
+                                 </button>
+                               )}
+                            </div>
                           </div>
                           <div className="max-h-64 overflow-y-auto">
                              {currentUser.notifications.length === 0 ? (
@@ -172,11 +184,18 @@ const Header: React.FC = () => {
                                currentUser.notifications.slice(0, 10).map(n => (
                                  <div 
                                    key={n.id} 
-                                   onClick={() => handleNotificationClick(n.link)}
-                                   className={`p-3 border-b border-[#222] hover:bg-[#222] text-sm cursor-pointer transition-colors ${!n.isRead ? 'bg-[#1a1a1a] border-l-2 border-l-white' : ''}`}
+                                   className={`group relative p-3 border-b border-[#222] hover:bg-[#222] text-sm transition-colors ${!n.isRead ? 'bg-[#1a1a1a] border-l-2 border-l-white' : ''}`}
                                  >
-                                   <div className="text-gray-300 line-clamp-2">{n.message}</div>
-                                   <div className="text-xs text-gray-600 mt-1">{new Date(n.createdAt).toLocaleString()}</div>
+                                   <div onClick={() => handleNotificationClick(n.link)} className="cursor-pointer pr-4">
+                                      <div className="text-gray-300 line-clamp-2">{n.message}</div>
+                                      <div className="text-xs text-gray-600 mt-1">{new Date(n.createdAt).toLocaleString()}</div>
+                                   </div>
+                                   <button 
+                                      onClick={(e) => { e.stopPropagation(); deleteNotification(n.id); }}
+                                      className="absolute top-2 right-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                   >
+                                      <X className="w-3 h-3" />
+                                   </button>
                                  </div>
                                ))
                              )}
