@@ -105,9 +105,7 @@ const connectDB = async () => {
       maxPoolSize: 50,
       minPoolSize: 5,
       socketTimeoutMS: 45000,
-      connectTimeoutMS: 3000,
-      bufferMaxEntries: 0,
-      bufferCommands: false
+      connectTimeoutMS: 3000
     });
     console.log('✅ [DB] Connected');
   } catch (err) {
@@ -218,7 +216,7 @@ const RoleSchema = new mongoose.Schema({
   color: String,
   effect: String,
   isSystem: Boolean,
-  isDefault: { type: Boolean, default: false, index: true },
+  isDefault: { type: Boolean, default: false },
   permissions: Object,
   priority: Number
 }, BaseOpts);
