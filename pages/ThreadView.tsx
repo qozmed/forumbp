@@ -163,18 +163,18 @@ const ThreadView: React.FC = () => {
   return (
     <div className="container mx-auto px-4 py-8 animate-fade-in">
       {/* Breadcrumbs */}
-      <div className="flex items-center gap-2 text-sm text-gray-500 mb-6 overflow-x-auto whitespace-nowrap pb-2">
-        <Link to="/" className="hover:text-white"><Home className="w-4 h-4" /></Link>
-        <ChevronRight className="w-4 h-4" />
-        <Link to="/" className="hover:text-white">{t('nav.forums')}</Link>
-        <ChevronRight className="w-4 h-4" />
+      <div className="flex items-center gap-1 md:gap-2 text-xs md:text-sm text-gray-500 mb-4 md:mb-6 overflow-x-auto whitespace-nowrap pb-2 scrollbar-hide">
+        <Link to="/" className="hover:text-white flex-shrink-0"><Home className="w-3 h-3 md:w-4 md:h-4" /></Link>
+        <ChevronRight className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
+        <Link to="/" className="hover:text-white flex-shrink-0">{t('nav.forums')}</Link>
+        <ChevronRight className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
         {forum && (
           <>
-             <Link to={`/forum/${forum.id}`} className="hover:text-white cursor-pointer">{forum.name}</Link>
-             <ChevronRight className="w-4 h-4" />
+             <Link to={`/forum/${forum.id}`} className="hover:text-white cursor-pointer truncate max-w-[120px] md:max-w-none">{forum.name}</Link>
+             <ChevronRight className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
           </>
         )}
-        <span className="text-gray-300">{localThread.title}</span>
+        <span className="text-gray-300 truncate">{localThread.title}</span>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8">
@@ -205,30 +205,30 @@ const ThreadView: React.FC = () => {
                      </div>
                   </div>
                ) : (
-                  <h1 className="text-2xl md:text-4xl font-bold font-display text-white mb-3 flex flex-wrap items-center gap-2 md:gap-3">
-                     {localThread.isPinned && <Pin className="w-6 h-6 text-green-400 fill-green-400" />}
+                  <h1 className="text-xl md:text-2xl lg:text-4xl font-bold font-display text-white mb-3 flex flex-wrap items-center gap-2 md:gap-3 break-words">
+                     {localThread.isPinned && <Pin className="w-5 h-5 md:w-6 md:h-6 text-green-400 fill-green-400 flex-shrink-0" />}
                      <PrefixBadge prefixId={localThread.prefixId} />
-                     {localThread.title}
+                     <span className="break-words">{localThread.title}</span>
                      {canEditHeader && (
-                        <button onClick={startHeaderEdit} className="text-gray-600 hover:text-white transition-colors ml-2" title="Edit Thread Title">
-                           <Pencil className="w-5 h-5" />
+                        <button onClick={startHeaderEdit} className="text-gray-600 hover:text-white transition-colors ml-2 flex-shrink-0" title="Edit Thread Title">
+                           <Pencil className="w-4 h-4 md:w-5 md:h-5" />
                         </button>
                      )}
                   </h1>
                )}
 
-               <div className="flex flex-wrap items-center gap-4 text-xs md:text-sm text-gray-500 bg-[#111] p-3 rounded border border-[#333]">
-                  <div className="flex items-center gap-2">
+               <div className="flex flex-wrap items-center gap-2 md:gap-4 text-xs md:text-sm text-gray-500 bg-[#111] p-2 md:p-3 rounded border border-[#333]">
+                  <div className="flex items-center gap-2 flex-shrink-0">
                      <Link to={author ? `/user/${author.id}` : '#'}>
-                        <img src={author?.avatarUrl || 'https://ui-avatars.com/api/?name=?&background=333&color=fff'} className="w-5 h-5 rounded bg-[#222]" alt="" />
+                        <img src={author?.avatarUrl || 'https://ui-avatars.com/api/?name=?&background=333&color=fff'} className="w-4 h-4 md:w-5 md:h-5 rounded bg-[#222]" alt="" />
                      </Link>
-                     <Link to={author ? `/user/${author.id}` : '#'} className="text-gray-300 font-bold hover:text-white transition-colors">
+                     <Link to={author ? `/user/${author.id}` : '#'} className="text-gray-300 font-bold hover:text-white transition-colors truncate max-w-[100px] md:max-w-none">
                         {author?.username || 'Unknown'}
                      </Link>
                   </div>
-                  <span>&bull;</span>
-                  <span>{new Date(localThread.createdAt).toLocaleString()}</span>
-                  <div className="ml-auto flex items-center gap-2">
+                  <span className="hidden md:inline">&bull;</span>
+                  <span className="text-[10px] md:text-xs">{new Date(localThread.createdAt).toLocaleString()}</span>
+                  <div className="ml-auto flex items-center gap-1 md:gap-2 flex-shrink-0">
                      {localThread.isLocked && (
                         <span className="flex items-center gap-1 text-red-400 bg-red-900/20 px-2 py-0.5 rounded border border-red-900/40 whitespace-nowrap">
                            <Lock className="w-3 h-3" /> <span className="hidden md:inline">{t('thread.locked')}</span>

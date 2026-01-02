@@ -205,7 +205,7 @@ const PostItem: React.FC<Props> = React.memo(({ post }) => {
             )}
 
             {/* Footer / Actions */}
-            <div className="bg-[#0a0a0a] px-4 md:px-6 py-3 border-t border-[#222] flex flex-wrap gap-2 items-center justify-between">
+            <div className="bg-[#0a0a0a] px-3 md:px-6 py-2 md:py-3 border-t border-[#222] flex flex-wrap gap-2 items-center justify-between">
                <div className="flex items-center gap-2 text-xs text-gray-400 min-h-[24px]" title={likeTooltip}>
                   {likesCount > 0 && (
                      <div className="flex items-center gap-2 bg-[#222] px-2 py-1 rounded border border-[#333]">
@@ -214,7 +214,7 @@ const PostItem: React.FC<Props> = React.memo(({ post }) => {
                      </div>
                   )}
                </div>
-               <div className="flex items-center gap-2 md:gap-4">
+               <div className="flex items-center gap-1.5 md:gap-4 flex-wrap">
                   {canDelete && !isEditing && (
                     <button 
                       onClick={handleDelete}

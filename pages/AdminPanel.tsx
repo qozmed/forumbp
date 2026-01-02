@@ -237,7 +237,7 @@ const AdminPanel: React.FC = () => {
          case 'users': return hasPermission(currentUser, 'canViewAdminUsers');
          case 'prefixes': return hasPermission(currentUser, 'canViewAdminPrefixes');
          case 'roles': return hasPermission(currentUser, 'canViewAdminRoles');
-         case 'broadcast': return hasPermission(currentUser, 'canViewAdminDashboard'); // Limited to dashboard perm for now
+         case 'broadcast': return hasPermission(currentUser, 'canSendBroadcasts');
          default: return false;
      }
   };
@@ -288,11 +288,11 @@ const AdminPanel: React.FC = () => {
         <Shield className="w-8 h-8 text-red-500" /> {t('admin.title')}
       </h1>
 
-      <div className="flex gap-4 mb-8 border-b border-gray-700 pb-1 overflow-x-auto">
+      <div className="flex gap-2 md:gap-4 mb-8 border-b border-gray-700 pb-1 overflow-x-auto scrollbar-hide">
         {['dashboard', 'forums', 'threads', 'users', 'prefixes', 'roles', 'broadcast'].map(tab => {
            if (!canShowTab(tab)) return null;
            return (
-             <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-4 py-2 font-medium capitalize flex items-center gap-2 ${activeTab === tab ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white'}`}>
+             <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-3 md:px-4 py-2 font-medium capitalize flex items-center gap-2 whitespace-nowrap flex-shrink-0 ${activeTab === tab ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-gray-400 hover:text-white'}`}>
                {t(`admin.${tab}` === 'admin.threads' ? 'Темы' : `admin.${tab}`)}
              </button>
            );
@@ -331,9 +331,9 @@ const AdminPanel: React.FC = () => {
                 </div>
              </div>
              
-             <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><Activity className="w-5 h-5" /> {t('admin.recentReg')}</h3>
-                <div className="overflow-x-auto">
+             <div className="bg-gray-800 p-4 md:p-6 rounded-lg border border-gray-700">
+                <h3 className="text-lg md:text-xl font-bold text-white mb-4 flex items-center gap-2"><Activity className="w-5 h-5" /> {t('admin.recentReg')}</h3>
+                <div className="overflow-x-auto -mx-4 md:mx-0">
                    <table className="w-full text-left text-sm text-gray-400 min-w-[500px]">
                       <thead className="bg-gray-900 text-gray-200">
                          <tr>
@@ -357,24 +357,24 @@ const AdminPanel: React.FC = () => {
          </div>
       )}
 
-      {activeTab === 'broadcast' && hasPermission(currentUser, 'canViewAdminDashboard') && (
-          <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 max-w-2xl mx-auto">
-              <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-                  <Send className="w-6 h-6 text-blue-400" /> Глобальная рассылка
+      {activeTab === 'broadcast' && hasPermission(currentUser, 'canSendBroadcasts') && (
+          <div className="bg-gray-800 p-4 md:p-6 rounded-lg border border-gray-700 max-w-2xl mx-auto">
+              <h3 className="text-lg md:text-xl font-bold text-white mb-2 flex items-center gap-2">
+                  <Send className="w-5 h-5 md:w-6 md:h-6 text-blue-400" /> Глобальная рассылка
               </h3>
-              <p className="text-sm text-gray-400 mb-6">Это сообщение будет отправлено в личные сообщения Telegram всем пользователям, привязавшим свой аккаунт.</p>
+              <p className="text-xs md:text-sm text-gray-400 mb-4 md:mb-6">Это сообщение будет отправлено в личные сообщения Telegram всем пользователям, привязавшим свой аккаунт.</p>
               
               <form onSubmit={handleBroadcast}>
                   <textarea 
                       value={broadcastText}
                       onChange={(e) => setBroadcastText(e.target.value)}
-                      className="w-full h-40 bg-gray-900 border border-gray-600 rounded p-3 text-white mb-4 focus:border-blue-500 outline-none"
+                      className="w-full h-32 md:h-40 bg-gray-900 border border-gray-600 rounded p-3 text-white mb-4 focus:border-blue-500 outline-none resize-y"
                       placeholder="Введите текст новости (Поддерживается HTML)..."
                   />
                   <button 
                       type="submit" 
                       disabled={broadcastSending || !broadcastText}
-                      className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded disabled:opacity-50"
+                      className="w-full py-2.5 md:py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded disabled:opacity-50 text-sm md:text-base"
                   >
                       {broadcastSending ? 'Отправка...' : 'Отправить всем'}
                   </button>
@@ -383,7 +383,7 @@ const AdminPanel: React.FC = () => {
       )}
 
       {activeTab === 'forums' && hasPermission(currentUser, 'canViewAdminForums') && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8" ref={catFormRef}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8" ref={catFormRef}>
           <div className="space-y-8">
              {/* Category Form */}
              {hasPermission(currentUser, 'canManageCategories') && (
@@ -494,14 +494,14 @@ const AdminPanel: React.FC = () => {
       )}
 
       {activeTab === 'threads' && hasPermission(currentUser, 'canViewAdminThreads') && (
-        <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-            <h3 className="text-xl font-bold text-white mb-4">Управление Темами</h3>
-            <div className="flex gap-4 mb-6 items-center">
-                <span className="text-sm text-gray-400">Выберите форум:</span>
+        <div className="bg-gray-800 p-4 md:p-6 rounded-lg border border-gray-700">
+            <h3 className="text-lg md:text-xl font-bold text-white mb-4">Управление Темами</h3>
+            <div className="flex flex-col md:flex-row gap-2 md:gap-4 mb-6 items-start md:items-center">
+                <span className="text-xs md:text-sm text-gray-400 whitespace-nowrap">Выберите форум:</span>
                 <select 
                     value={selectedForumForThreads} 
                     onChange={(e) => setSelectedForumForThreads(e.target.value)}
-                    className="bg-gray-900 border border-gray-600 rounded p-2 text-white outline-none min-w-[200px]"
+                    className="bg-gray-900 border border-gray-600 rounded p-2 text-white outline-none w-full md:min-w-[200px] text-sm"
                 >
                     <option value="">Все форумы</option>
                     {forums.map(f => (
@@ -512,11 +512,11 @@ const AdminPanel: React.FC = () => {
             
             <div className="space-y-2 max-h-[600px] overflow-y-auto">
                 {getFilteredThreads().map((thread, idx, arr) => (
-                    <div key={thread.id} className="flex items-center justify-between bg-gray-900/50 p-3 rounded border border-gray-700 hover:bg-gray-900 transition-colors">
-                        <div className="flex items-center gap-3">
+                    <div key={thread.id} className="flex flex-col md:flex-row items-start md:items-center justify-between bg-gray-900/50 p-3 rounded border border-gray-700 hover:bg-gray-900 transition-colors gap-3">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
                             {/* Reordering */}
                             {selectedForumForThreads && hasPermission(currentUser, 'canManageForums') && (
-                                <div className="flex flex-col">
+                                <div className="flex flex-col flex-shrink-0">
                                     <button 
                                         onClick={() => adminReorderThread(thread.id, 'up')} 
                                         disabled={idx === 0} 
@@ -533,17 +533,17 @@ const AdminPanel: React.FC = () => {
                                     </button>
                                 </div>
                             )}
-                            <div className="min-w-0">
-                                <Link to={`/thread/${thread.id}`} className="font-bold text-white hover:underline truncate block">
+                            <div className="min-w-0 flex-1">
+                                <Link to={`/thread/${thread.id}`} className="font-bold text-sm md:text-base text-white hover:underline truncate block">
                                     <PrefixBadge prefixId={thread.prefixId} /> {thread.title}
                                 </Link>
-                                <div className="text-xs text-gray-500">
+                                <div className="text-xs text-gray-500 mt-1">
                                     Автор: {users[thread.authorId]?.username} | Форум: {forums.find(f => f.id === thread.forumId)?.name}
                                 </div>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-shrink-0">
                              {/* Move Dialog Logic */}
                              {hasPermission(currentUser, 'canManageForums') && (
                                  moveThreadId === thread.id ? (
@@ -584,7 +584,7 @@ const AdminPanel: React.FC = () => {
 
       {activeTab === 'users' && hasPermission(currentUser, 'canViewAdminUsers') && (
         <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto -mx-4 md:mx-0">
             <table className="w-full text-left text-sm text-gray-400 min-w-[700px]">
               <thead className="bg-gray-750 uppercase font-medium">
                 <tr>

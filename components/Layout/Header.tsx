@@ -108,7 +108,7 @@ const Header: React.FC = () => {
           </nav>
 
           {/* User Tools */}
-          <div className="flex items-center gap-2 md:gap-5">
+          <div className="flex items-center gap-1 md:gap-5">
             {/* Lang Switch (Desktop) */}
             <button onClick={toggleLanguage} className="hidden md:flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-white uppercase transition-colors">
               <Globe className="w-3.5 h-3.5" />
@@ -120,7 +120,7 @@ const Header: React.FC = () => {
             {/* Search */}
             <div className="relative">
               {showSearch ? (
-                <form onSubmit={handleSearch} className="absolute right-0 top-1/2 -translate-y-1/2 w-[calc(100vw-80px)] md:w-64 origin-right animate-in fade-in slide-in-from-right-4 z-50">
+                <form onSubmit={handleSearch} className="absolute right-0 top-1/2 -translate-y-1/2 w-[calc(100vw-100px)] md:w-64 origin-right animate-in fade-in slide-in-from-right-4 z-50">
                    <div className="flex items-center gap-2 bg-black border border-white/20 rounded px-2">
                      <input 
                       autoFocus
@@ -131,29 +131,29 @@ const Header: React.FC = () => {
                       className="w-full bg-transparent py-1.5 px-2 text-sm text-white focus:outline-none"
                       placeholder={t('general.searchPlaceholder')}
                      />
-                     <button type="button" onClick={() => setShowSearch(false)} className="text-gray-500"><X className="w-4 h-4"/></button>
+                     <button type="button" onClick={() => setShowSearch(false)} className="text-gray-500 flex-shrink-0"><X className="w-4 h-4"/></button>
                    </div>
                 </form>
               ) : (
-                <button onClick={() => setShowSearch(true)} className="text-gray-400 hover:text-white transition-colors p-1.5" title={t('general.search')}>
-                  <Search className="w-5 h-5" />
+                <button onClick={() => setShowSearch(true)} className="text-gray-400 hover:text-white transition-colors p-1.5 flex-shrink-0" title={t('general.search')}>
+                  <Search className="w-4 h-4 md:w-5 md:h-5" />
                 </button>
               )}
             </div>
             
             {currentUser ? (
-               <div className="flex items-center gap-2 md:gap-4">
+               <div className="flex items-center gap-1 md:gap-4">
                   {/* Notifications */}
                   <div className="relative">
                     <button 
                       onClick={() => { setShowNotifMenu(!showNotifMenu); setShowUserMenu(false); }}
-                      className="text-gray-400 hover:text-white relative p-1.5 hover:bg-white/5 rounded transition-colors"
+                      className="text-gray-400 hover:text-white relative p-1.5 hover:bg-white/5 rounded transition-colors flex-shrink-0"
                     >
-                      <Bell className="w-5 h-5" />
-                      {unreadCount > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-white rounded-full animate-pulse shadow-sm"></span>}
+                      <Bell className="w-4 h-4 md:w-5 md:h-5" />
+                      {unreadCount > 0 && <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-white rounded-full animate-pulse shadow-sm"></span>}
                     </button>
                     {showNotifMenu && (
-                       <div className="absolute right-0 mt-4 w-72 md:w-80 bg-[#111] border border-[#333] shadow-2xl rounded-lg overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
+                       <div className="absolute right-0 mt-2 md:mt-4 w-[calc(100vw-20px)] md:w-72 lg:w-80 bg-[#111] border border-[#333] shadow-2xl rounded-lg overflow-hidden animate-in fade-in slide-in-from-top-2 z-50 max-w-[320px] md:max-w-none">
                           <div className="p-3 bg-[#0a0a0a] border-b border-[#333] font-bold text-sm text-white flex justify-between items-center">
                             <span>{t('notifications.title')}</span>
                             <div className="flex gap-2">
@@ -207,18 +207,18 @@ const Header: React.FC = () => {
                   {/* User Menu */}
                   <div className="relative">
                     <div 
-                      className="flex items-center gap-3 cursor-pointer group" 
+                      className="flex items-center gap-2 md:gap-3 cursor-pointer group" 
                       onClick={() => { setShowUserMenu(!showUserMenu); setShowNotifMenu(false); }}
                     >
                       <img 
                         src={currentUser.avatarUrl} 
                         alt="Avatar" 
-                        className="w-8 h-8 rounded bg-[#222] border border-[#444] group-hover:border-white transition-colors object-cover"
+                        className="w-7 h-7 md:w-8 md:h-8 rounded bg-[#222] border border-[#444] group-hover:border-white transition-colors object-cover flex-shrink-0"
                       />
                     </div>
 
                     {showUserMenu && (
-                      <div className="absolute right-0 mt-4 w-56 bg-[#111] border border-[#333] shadow-2xl rounded-lg overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
+                      <div className="absolute right-0 mt-2 md:mt-4 w-56 bg-[#111] border border-[#333] shadow-2xl rounded-lg overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
                         <div className="px-4 py-3 border-b border-[#333] bg-[#0a0a0a]">
                            <div className="font-bold text-white truncate">{currentUser.username}</div>
                            <div className="text-xs text-gray-500 uppercase tracking-wider mt-0.5">{userRole?.name || 'Member'}</div>
