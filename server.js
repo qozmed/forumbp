@@ -98,11 +98,16 @@ const sanitizeString = (str) => {
 const connectDB = async () => {
   try {
     await mongoose.connect(MONGO_URI, {
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 3000,
       family: 4,
       dbName: 'blackproject',
-      autoIndex: true, 
-      maxPoolSize: 100
+      autoIndex: false, // Disable auto-indexing for better performance
+      maxPoolSize: 50,
+      minPoolSize: 5,
+      socketTimeoutMS: 45000,
+      connectTimeoutMS: 3000,
+      bufferMaxEntries: 0,
+      bufferCommands: false
     });
     console.log('✅ [DB] Connected');
   } catch (err) {
@@ -115,14 +120,14 @@ const BaseOpts = { versionKey: false };
 
 const UserSchema = new mongoose.Schema({
   id: { type: String, unique: true, required: true, index: true },
-  username: { type: String, required: true },
+  username: { type: String, required: true, index: true },
   email: { type: String, required: true, index: true },
   hash: { type: String, select: false },
   salt: { type: String, select: false },
   avatarUrl: { type: String, default: '' },
-  roleId: { type: String, default: 'role_user' },
+  roleId: { type: String, default: 'role_user', index: true },
   secondaryRoleId: { type: String, default: '' },
-  isBanned: { type: Boolean, default: false },
+  isBanned: { type: Boolean, default: false, index: true },
   messages: { type: Number, default: 0 },
   reactions: { type: Number, default: 0 },
   points: { type: Number, default: 0 },
@@ -142,6 +147,7 @@ const UserSchema = new mongoose.Schema({
   tempCodeExpires: { type: Date, select: false }
 }, BaseOpts);
 UserSchema.index({ points: -1 });
+UserSchema.index({ lastActiveAt: -1 }); // Compound index for sorting
 const User = mongoose.model('User', UserSchema);
 
 const Category = mongoose.model('Category', new mongoose.Schema({
@@ -206,16 +212,18 @@ const Prefix = mongoose.model('Prefix', new mongoose.Schema({
   color: String
 }, BaseOpts));
 
-const Role = mongoose.model('Role', new mongoose.Schema({
+const RoleSchema = new mongoose.Schema({
   id: { type: String, unique: true },
   name: String,
   color: String,
   effect: String,
   isSystem: Boolean,
-  isDefault: { type: Boolean, default: false },
+  isDefault: { type: Boolean, default: false, index: true },
   permissions: Object,
   priority: Number
-}, BaseOpts));
+}, BaseOpts);
+RoleSchema.index({ isDefault: 1 });
+const Role = mongoose.model('Role', RoleSchema);
 
 // ==========================================
 // HELPERS
@@ -247,9 +255,35 @@ const handle = (fn) => async (req, res, next) => {
 };
 
 // ==========================================
-// TELEGRAM BOT
+// TELEGRAM BOT WITH MESSAGE QUEUE
 // ==========================================
 let bot = null;
+const telegramQueue = [];
+let isProcessingQueue = false;
+
+const processTelegramQueue = async () => {
+  if (isProcessingQueue || telegramQueue.length === 0) return;
+  isProcessingQueue = true;
+  
+  while (telegramQueue.length > 0) {
+    const { chatId, message, options } = telegramQueue.shift();
+    try {
+      await bot.sendMessage(chatId, message, options);
+    } catch (err) {
+      console.error('Telegram send error:', err.message);
+    }
+    // Small delay to avoid rate limits
+    if (telegramQueue.length > 0) await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  
+  isProcessingQueue = false;
+};
+
+const queueTelegramMessage = (chatId, message, options = {}) => {
+  telegramQueue.push({ chatId, message, options });
+  setImmediate(processTelegramQueue);
+};
+
 if (TELEGRAM_TOKEN) {
   try {
     bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
@@ -268,14 +302,50 @@ if (TELEGRAM_TOKEN) {
                 user.telegramId = chatId.toString();
                 user.connectToken = undefined; 
                 await user.save();
-                bot.sendMessage(chatId, `✅ <b>Аккаунт успешно привязан!</b>`, { parse_mode: 'HTML' });
+                queueTelegramMessage(chatId, `✅ <b>Аккаунт успешно привязан!</b>`, { parse_mode: 'HTML' });
             } else {
-                bot.sendMessage(chatId, `❌ Неверный токен.`);
+                queueTelegramMessage(chatId, `❌ Неверный токен.`);
             }
         } catch (e) { console.error('Bot Error:', e); }
     });
   } catch (e) { console.error('Failed to start Telegram Bot:', e.message); }
 }
+
+// ==========================================
+// CACHE FOR STATIC DATA
+// ==========================================
+const cache = {
+  categories: null,
+  forums: null,
+  prefixes: null,
+  roles: null,
+  lastUpdate: { categories: 0, forums: 0, prefixes: 0, roles: 0 },
+  TTL: 30000 // 30 seconds cache
+};
+
+const getCached = async (key, fetcher) => {
+  const now = Date.now();
+  if (cache[key] && (now - cache.lastUpdate[key]) < cache.TTL) {
+    return cache[key];
+  }
+  const data = await fetcher();
+  cache[key] = data;
+  cache.lastUpdate[key] = now;
+  return data;
+};
+
+const invalidateCache = (key) => {
+  if (key) {
+    cache[key] = null;
+    cache.lastUpdate[key] = 0;
+  } else {
+    cache.categories = null;
+    cache.forums = null;
+    cache.prefixes = null;
+    cache.roles = null;
+    Object.keys(cache.lastUpdate).forEach(k => cache.lastUpdate[k] = 0);
+  }
+};
 
 // ==========================================
 // API ROUTER (Mounts at /api)
@@ -296,7 +366,9 @@ api.post('/auth/register', limitReq('auth'), handle(async (req, res) => {
 
   const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=random&color=fff&size=256&bold=true`;
   const { salt, hash } = hashPassword(password);
-  const defaultRole = await Role.findOne({ isDefault: true }).lean();
+  // Use cached roles if available, otherwise fetch
+  const roles = await getCached('roles', () => Role.find().lean());
+  const defaultRole = roles.find(r => r.isDefault);
   const roleId = defaultRole ? defaultRole.id : 'role_user';
 
   const newUser = await User.create({
@@ -332,18 +404,16 @@ api.post('/auth/login', limitReq('auth'), handle(async (req, res) => {
 
       if (!isCodeValid) {
           code = generateCode();
-          // NON-BLOCKING DB UPDATE: Update DB but don't wait for it to block the UI logic flow significantly
-          await User.updateOne({ id: user.id }, { tempCode: code, tempCodeExpires: new Date(Date.now() + 5 * 60 * 1000) });
+          // NON-BLOCKING DB UPDATE: Fire and forget to not block response
+          User.updateOne({ id: user.id }, { tempCode: code, tempCodeExpires: new Date(Date.now() + 5 * 60 * 1000) }).exec();
       }
 
       // 1. Send Response IMMEDIATELY to frontend
       res.status(200).json({ require2fa: true, userId: user.id });
 
-      // 2. Send Telegram Message in BACKGROUND (Fire and Forget)
+      // 2. Send Telegram Message in BACKGROUND (Fire and Forget via queue)
       // This prevents the UI from waiting for Telegram API
-      setImmediate(() => {
-         bot.sendMessage(user.telegramId, `🔐 <b>Код:</b> <code>${code}</code>`, { parse_mode: 'HTML' }).catch(err => console.error("TG Async Send Error:", err.message));
-      });
+      queueTelegramMessage(user.telegramId, `🔐 <b>Код:</b> <code>${code}</code>`, { parse_mode: 'HTML' });
       
       return;
   }
@@ -366,11 +436,13 @@ api.post('/auth/verify-2fa', limitReq('auth'), handle(async (req, res) => {
     if (!user.tempCode || String(user.tempCode) !== String(code)) return res.status(400).json({ error: 'Invalid code' });
     if (new Date() > new Date(user.tempCodeExpires)) return res.status(400).json({ error: 'Code expired' });
 
-    // Atomic update
-    await User.updateOne({ id: userId }, { $unset: { tempCode: "", tempCodeExpires: "" }, $push: { ipHistory: { $each: [ip], $slice: -20, $position: 0 } } });
+    // Atomic update and return user in one operation
+    const cleanUser = await User.findOneAndUpdate(
+      { id: userId },
+      { $unset: { tempCode: "", tempCodeExpires: "" }, $push: { ipHistory: { $each: [ip], $slice: -20, $position: 0 } } },
+      { new: true, lean: true }
+    ).select('-hash -salt -ipHistory -tempCode -tempCodeExpires -connectToken');
     
-    // Return clean user object immediately
-    const cleanUser = await User.findOne({ id: userId }).lean();
     res.json(cleanUser);
 }));
 
@@ -380,15 +452,18 @@ api.get('/health', (req, res) => res.json({ status: 'ok' }));
 api.post('/notifications/send', handle(async (req, res) => {
     let { targetUserId, message, link } = req.body;
     message = sanitizeString(message);
-    const targetUser = await User.findOne({ id: targetUserId });
+    // Only fetch telegramId, not the whole user
+    const targetUser = await User.findOne({ id: targetUserId }).select('telegramId').lean();
     if (!targetUser) return res.status(404).json({ error: 'User not found' });
 
     const newNotif = { id: `n${Date.now()}`, userId: targetUserId, type: 'system', message, link, isRead: false, createdAt: new Date().toISOString() };
+    // Fire and forget update
     User.updateOne({ id: targetUserId }, { $push: { notifications: { $each: [newNotif], $slice: -50, $position: 0 } } }).exec();
     
+    // Background Send via queue
     if (targetUser.telegramId && bot) {
         const fullLink = req.get('origin') + (link.startsWith('/') ? link : `/${link}`);
-        bot.sendMessage(targetUser.telegramId, `🔔 ${message.replace(/<[^>]*>?/gm, '')}\n\n👉 <a href="${fullLink}">Открыть</a>`, { parse_mode: 'HTML' }).catch(() => {});
+        queueTelegramMessage(targetUser.telegramId, `🔔 ${message.replace(/<[^>]*>?/gm, '')}\n\n👉 <a href="${fullLink}">Открыть</a>`, { parse_mode: 'HTML' });
     }
     res.json({ success: true });
 }));
@@ -396,47 +471,55 @@ api.post('/notifications/send', handle(async (req, res) => {
 // --- GETTERS ---
 // Optimized User Fetch: reduced payload
 api.get('/users', handle(async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 200, 500); // Default 200, max 500
   const users = await User.find()
     .sort({ lastActiveAt: -1 })
-    .limit(500)
+    .limit(limit)
     .select('id username avatarUrl roleId secondaryRoleId isBanned points reactions messages customTitle joinedAt lastActiveAt currentActivity')
     .lean();
   res.json(users);
 }));
 
 api.get('/users/:id/sync', handle(async (req, res) => {
-  const user = await User.findOne({ id: req.params.id }).select('+telegramId +twoFactorEnabled +email').lean();
+  const user = await User.findOne({ id: req.params.id })
+    .select('id username email avatarUrl roleId secondaryRoleId isBanned messages reactions points customTitle signature bannerUrl joinedAt lastActiveAt currentActivity notifications telegramId twoFactorEnabled')
+    .lean();
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json(user);
 }));
 
 api.get('/categories', handle(async (req, res) => {
-    const items = await Category.find().sort({ order: 1 }).lean();
+    const items = await getCached('categories', () => Category.find().sort({ order: 1 }).lean());
     res.json(items);
 }));
 
 api.get('/forums', handle(async (req, res) => {
-  const forums = await Forum.find().sort({ order: 1 }).lean();
+  const forums = await getCached('forums', () => Forum.find().sort({ order: 1 }).lean());
   res.json(forums);
 }));
 
 api.get('/prefixes', handle(async (req, res) => {
-    const items = await Prefix.find().lean();
+    const items = await getCached('prefixes', () => Prefix.find().lean());
     res.json(items);
 }));
 
 api.get('/roles', handle(async (req, res) => {
-    const items = await Role.find().lean();
+    const items = await getCached('roles', () => Role.find().lean());
     res.json(items);
 }));
 
 api.get('/threads', handle(async (req, res) => {
   const { forumId, limit, sort } = req.query;
   let query = Thread.find();
-  if (forumId) query = query.where({ forumId }).sort({ isPinned: -1, order: 1, createdAt: -1 });
-  else if (sort === 'recent') query = query.sort({ createdAt: -1 });
-  else query = query.sort({ isPinned: -1, order: 1, createdAt: -1 });
-  if (limit) query = query.limit(parseInt(limit));
+  if (forumId) {
+    query = query.where({ forumId }).sort({ isPinned: -1, order: 1, createdAt: -1 });
+  } else if (sort === 'recent') {
+    query = query.sort({ createdAt: -1 });
+  } else {
+    query = query.sort({ isPinned: -1, order: 1, createdAt: -1 });
+  }
+  const limitNum = limit ? Math.min(parseInt(limit), 500) : 100; // Default 100, max 500
+  query = query.limit(limitNum);
   res.json(await query.lean().exec());
 }));
 
@@ -447,11 +530,15 @@ api.get('/threads/:id', handle(async (req, res) => {
 }));
 
 api.get('/posts', handle(async (req, res) => {
-  const { threadId, userId } = req.query;
+  const { threadId, userId, limit } = req.query;
   let query = Post.find();
-  if (threadId) query = query.where({ threadId }).sort({ number: 1 }); 
-  else if (userId) query = query.where({ authorId: userId }).sort({ createdAt: -1 }); 
-  else query = query.limit(100); 
+  if (threadId) {
+    query = query.where({ threadId }).sort({ number: 1 });
+  } else if (userId) {
+    query = query.where({ authorId: userId }).sort({ createdAt: -1 });
+  }
+  const limitNum = limit ? Math.min(parseInt(limit), 1000) : (threadId ? undefined : 100); // No limit for thread posts, 100 default for others, max 1000
+  if (limitNum) query = query.limit(limitNum);
   res.json(await query.lean().exec());
 }));
 
@@ -463,6 +550,10 @@ const createCrud = (path, Model) => {
     if (req.body.name) req.body.name = sanitizeString(req.body.name);
     if (req.body.content) req.body.content = xss(req.body.content, { whiteList: {}, stripIgnoreTag: false, stripIgnoreTagBody: ['script'] });
     const item = await Model.create(req.body);
+    // Invalidate cache for static data
+    if (['categories', 'forums', 'prefixes', 'roles'].includes(path)) {
+      invalidateCache(path);
+    }
     res.status(201).json(item);
   }));
   api.put(`/${path}/:id`, handle(async (req, res) => {
@@ -472,10 +563,18 @@ const createCrud = (path, Model) => {
     if (req.body.name) req.body.name = sanitizeString(req.body.name);
     if (req.body.content) req.body.content = xss(req.body.content, { whiteList: {}, stripIgnoreTag: false, stripIgnoreTagBody: ['script'] });
     const item = await Model.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true }).lean();
+    // Invalidate cache for static data
+    if (['categories', 'forums', 'prefixes', 'roles'].includes(path)) {
+      invalidateCache(path);
+    }
     res.json(item);
   }));
   api.delete(`/${path}/:id`, handle(async (req, res) => {
     await Model.deleteOne({ id: req.params.id });
+    // Invalidate cache for static data
+    if (['categories', 'forums', 'prefixes', 'roles'].includes(path)) {
+      invalidateCache(path);
+    }
     res.json({ success: true });
   }));
 };
@@ -490,12 +589,16 @@ api.post('/user/telegram-link', handle(async (req, res) => {
 
 api.post('/admin/broadcast', handle(async (req, res) => {
     const { text } = req.body;
-    const usersWithTg = await User.find({ telegramId: { $exists: true, $ne: null } }).lean();
+    const usersWithTg = await User.find({ telegramId: { $exists: true, $ne: null } }).select('telegramId').lean();
     
-    // Background broadcast
-    setImmediate(() => {
-       usersWithTg.forEach(u => bot.sendMessage(u.telegramId, `📢 <b>Новости проекта</b>\n\n${text}`, { parse_mode: 'HTML' }).catch(() => {}));
-    });
+    // Background broadcast via queue
+    if (bot) {
+      setImmediate(() => {
+        usersWithTg.forEach(u => {
+          queueTelegramMessage(u.telegramId, `📢 <b>Новости проекта</b>\n\n${text}`, { parse_mode: 'HTML' });
+        });
+      });
+    }
     
     res.json({ sent: usersWithTg.length, total: usersWithTg.length });
 }));
@@ -516,6 +619,7 @@ api.delete('/threads/:id', handle(async (req, res) => {
 api.put('/roles/:id', handle(async (req, res) => {
   if (req.body.isDefault) await Role.updateMany({ id: { $ne: req.params.id } }, { isDefault: false });
   const item = await Role.findOneAndUpdate({ id: req.params.id }, req.body, { new: true, upsert: true }).lean();
+  invalidateCache('roles');
   res.json(item);
 }));
 

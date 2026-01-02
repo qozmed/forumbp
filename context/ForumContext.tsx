@@ -122,15 +122,17 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const getApi = (offlineOverride: boolean) => (useMongo && !offlineOverride) ? mongo : db;
 
-  // Helper to merge new users into state without duplicates
+  // Helper to merge new users into state without duplicates and unnecessary updates
   const mergeUsers = (newUsers: User[] | Record<string, User>) => {
       setUsers(prev => {
           const next = { ...prev };
           const list = Array.isArray(newUsers) ? newUsers : Object.values(newUsers);
           let changed = false;
           list.forEach(u => {
-              // Only update if user is new or has changes to vital info (simplified check)
-              if (!next[u.id] || next[u.id].avatarUrl !== u.avatarUrl || next[u.id].username !== u.username) {
+              if (!next[u.id] || 
+                  next[u.id].avatarUrl !== u.avatarUrl || 
+                  next[u.id].username !== u.username ||
+                  next[u.id].messages !== u.messages) {
                   next[u.id] = u;
                   changed = true;
               }
@@ -165,9 +167,16 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       
       if (sid) {
           userPromise = api.getUserSync(sid).catch((err) => {
-              console.warn("Session restore failed:", err);
-              api.clearSession(); // Invalid token
-              return null;
+              // AUTO-LOGOUT FIX: Only clear session if user is definitely not found or unauthorized (404/401)
+              // If it's a network error or 503 (Database connecting), keep the token but throw error so main catch handles it.
+              const msg = (err.message || '').toLowerCase();
+              if (msg.includes('404') || msg.includes('not found') || msg.includes('401') || msg.includes('unauthorized')) {
+                  console.warn("Session invalid, clearing token:", msg);
+                  api.clearSession(); 
+                  return null; // Valid guest state
+              }
+              console.error("Session restore transient failure:", err);
+              throw err; // Propagate transient errors to trigger retry UI
           });
       }
 
@@ -222,9 +231,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     } catch (e: any) {
       if (initial && !effectiveOffline) {
-        setIsOffline(true);
-        initDB();
-        return loadData(initial, true);
+        // If we are strictly in Mongo mode and it fails, don't fallback to offline DB automatically if we want to force connection retry
+        // But for user experience, let's show fatal error with retry
+        setFatalError(e.message);
+        return; 
       }
       if (initial) setFatalError(e.message);
     }
