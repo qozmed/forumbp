@@ -29,13 +29,13 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 // SECURITY & PERFORMANCE CONFIGURATION
 // ==========================================
 
-// 1. HELMET: Sets secure HTTP headers
+// 1. HELMET
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
 }));
 
-// 2. COMPRESSION: Gzip response bodies
+// 2. COMPRESSION
 app.use(compression());
 
 // 3. CORS
@@ -54,7 +54,7 @@ app.use(mongoSanitize());
 
 // 6. CUSTOM RATE LIMITER (Optimized)
 const rateLimits = {
-  general: { window: 60 * 1000, max: 2000 }, // Significantly increased for smooth interactions
+  general: { window: 60 * 1000, max: 3000 }, // High limit for smooth UX
   auth: { window: 15 * 60 * 1000, max: 100 } 
 };
 
@@ -122,12 +122,8 @@ if (TELEGRAM_TOKEN) {
   try {
     bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
     
-    // Suppress Polling Errors (Conflict 409)
     bot.on('polling_error', (error) => {
-      if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
-         // Silently ignore conflict errors in dev
-         return;
-      }
+      if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) return;
       console.error('Telegram Polling Error:', error.message);
     });
 
@@ -136,9 +132,7 @@ if (TELEGRAM_TOKEN) {
     bot.onText(/\/start (.+)/, async (msg, match) => {
         const chatId = msg.chat.id;
         const token = match[1]; 
-
         if (!token) return;
-
         try {
             const user = await User.findOne({ connectToken: token });
             if (user) {
@@ -167,8 +161,8 @@ const connectDB = async () => {
       serverSelectionTimeoutMS: 5000,
       family: 4,
       dbName: 'blackproject',
-      autoIndex: true, // Auto-build indexes
-      maxPoolSize: 50 // Increased pool size for better concurrency
+      autoIndex: true, 
+      maxPoolSize: 50 
     });
     console.log('✅ [DB] Connected');
   } catch (err) {
@@ -179,7 +173,8 @@ connectDB();
 
 const BaseOpts = { versionKey: false };
 
-const User = mongoose.model('User', new mongoose.Schema({
+// --- USER SCHEMA ---
+const UserSchema = new mongoose.Schema({
   id: { type: String, unique: true, required: true, index: true },
   username: { type: String, required: true },
   email: { type: String, required: true, index: true },
@@ -206,16 +201,22 @@ const User = mongoose.model('User', new mongoose.Schema({
   connectToken: { type: String, select: false, index: true },
   tempCode: { type: String, select: false },
   tempCodeExpires: { type: Date, select: false }
-}, BaseOpts));
+}, BaseOpts);
+// Index for sorting users by points (Leaderboard)
+UserSchema.index({ points: -1 });
+const User = mongoose.model('User', UserSchema);
 
-const Category = mongoose.model('Category', new mongoose.Schema({
+// --- CATEGORY SCHEMA ---
+const CategorySchema = new mongoose.Schema({
   id: { type: String, unique: true, index: true },
   title: String,
   backgroundUrl: String,
   order: { type: Number, default: 0, index: true }
-}, BaseOpts));
+}, BaseOpts);
+const Category = mongoose.model('Category', CategorySchema);
 
-const Forum = mongoose.model('Forum', new mongoose.Schema({
+// --- FORUM SCHEMA ---
+const ForumSchema = new mongoose.Schema({
   id: { type: String, unique: true, index: true },
   categoryId: { type: String, index: true },
   parentId: { type: String, index: true },
@@ -228,9 +229,13 @@ const Forum = mongoose.model('Forum', new mongoose.Schema({
   order: { type: Number, default: 0, index: true },
   lastPost: Object,
   subForums: Array 
-}, BaseOpts));
+}, BaseOpts);
+// Compound index for forum structure
+ForumSchema.index({ categoryId: 1, order: 1 });
+const Forum = mongoose.model('Forum', ForumSchema);
 
-const Thread = mongoose.model('Thread', new mongoose.Schema({
+// --- THREAD SCHEMA ---
+const ThreadSchema = new mongoose.Schema({
   id: { type: String, unique: true, index: true },
   forumId: { type: String, index: true },
   title: String,
@@ -243,9 +248,16 @@ const Thread = mongoose.model('Thread', new mongoose.Schema({
   prefixId: String,
   lastPost: Object,
   order: { type: Number, default: 0, index: true } 
-}, BaseOpts));
+}, BaseOpts);
+// COMPOUND INDEXES for Fast Sorting
+// 1. Getting threads in a forum: Filter by forumId, Sort by Pinned, Order, Date
+ThreadSchema.index({ forumId: 1, isPinned: -1, order: 1, createdAt: -1 });
+// 2. Getting recent threads (Activity): Sort by date
+ThreadSchema.index({ createdAt: -1 });
+const Thread = mongoose.model('Thread', ThreadSchema);
 
-const Post = mongoose.model('Post', new mongoose.Schema({
+// --- POST SCHEMA ---
+const PostSchema = new mongoose.Schema({
   id: { type: String, unique: true, index: true },
   threadId: { type: String, index: true },
   authorId: { type: String, index: true },
@@ -254,7 +266,12 @@ const Post = mongoose.model('Post', new mongoose.Schema({
   likes: { type: Number, default: 0 },
   likedBy: { type: Array, default: [] },
   number: { type: Number, index: true }
-}, BaseOpts));
+}, BaseOpts);
+// Compound Index: Get posts for a thread, sorted by number
+PostSchema.index({ threadId: 1, number: 1 });
+// Compound Index: Get user's posts sorted by date
+PostSchema.index({ authorId: 1, createdAt: -1 });
+const Post = mongoose.model('Post', PostSchema);
 
 const Prefix = mongoose.model('Prefix', new mongoose.Schema({
   id: { type: String, unique: true },
@@ -303,6 +320,14 @@ const handle = (fn) => async (req, res, next) => {
     console.error(`💥 Error in ${req.url}:`, error.message);
     res.status(500).json({ error: 'Internal Server Error' }); 
   }
+};
+
+// Cache Middleware for Static-like Data (60 seconds)
+const cacheControl = (seconds = 60) => (req, res, next) => {
+    if (req.method === 'GET') {
+        res.set('Cache-Control', `public, max-age=${seconds}`);
+    }
+    next();
 };
 
 // ==========================================
@@ -445,7 +470,6 @@ app.post('/api/notifications/send', handle(async (req, res) => {
     };
     targetUser.notifications.unshift(newNotif);
     
-    // LIMIT HISTORY SIZE TO IMPROVE PERFORMANCE
     if (targetUser.notifications.length > 50) {
         targetUser.notifications = targetUser.notifications.slice(0, 50);
     }
@@ -480,22 +504,26 @@ app.post('/api/admin/broadcast', handle(async (req, res) => {
     res.json({ sent: sentCount, total: usersWithTg.length });
 }));
 
-// OPTIMIZED USER LIST (Public Info Only)
-app.get('/api/users', handle(async (req, res) => {
-  // EXCLUDE HEAVY FIELDS: notifications, email, ipHistory, connectToken
-  const users = await User.find().select('id username avatarUrl roleId secondaryRoleId isBanned points reactions messages customTitle joinedAt lastActiveAt currentActivity').lean();
+// SUPER OPTIMIZED USER LIST
+// Cached for 15s to prevent database hammering on polls
+app.get('/api/users', cacheControl(15), handle(async (req, res) => {
+  // Only return users who have signed up recently OR are top posters OR were active recently.
+  // Limiting to 500 to prevent packet bloat.
+  const users = await User.find()
+    .sort({ lastActiveAt: -1 })
+    .limit(500)
+    .select('id username avatarUrl roleId secondaryRoleId isBanned points reactions messages customTitle joinedAt lastActiveAt currentActivity')
+    .lean();
   res.json(users);
 }));
 
-// NEW: PRIVATE USER SYNC (For current user session)
 app.get('/api/users/:id/sync', handle(async (req, res) => {
-  // Returns full user object for the session user (including notifications)
   const user = await User.findOne({ id: req.params.id }).select('+telegramId +twoFactorEnabled +email').lean();
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json(user);
 }));
 
-app.get('/api/forums', handle(async (req, res) => {
+app.get('/api/forums', cacheControl(60), handle(async (req, res) => {
   const forums = await Forum.find().sort({ order: 1 }).lean();
   res.json(forums);
 }));
@@ -510,11 +538,20 @@ app.get('/api/threads/:id', handle(async (req, res) => {
 
 app.get('/api/threads', handle(async (req, res) => {
   const { forumId, limit, sort } = req.query;
+  
   let query = Thread.find();
-  if (forumId) query = query.where({ forumId });
-  if (sort === 'recent') query = query.sort({ createdAt: -1 });
-  else query = query.sort({ isPinned: -1, order: 1, createdAt: -1 });
+  if (forumId) {
+      // Use the compound index: forumId + isPinned + order + createdAt
+      query = query.where({ forumId }).sort({ isPinned: -1, order: 1, createdAt: -1 });
+  } else if (sort === 'recent') {
+      query = query.sort({ createdAt: -1 });
+  } else {
+      query = query.sort({ isPinned: -1, order: 1, createdAt: -1 });
+  }
+  
   if (limit) query = query.limit(parseInt(limit));
+  
+  // Use lean() for performance
   const items = await query.lean().exec();
   res.json(items);
 }));
@@ -522,20 +559,34 @@ app.get('/api/threads', handle(async (req, res) => {
 app.get('/api/posts', handle(async (req, res) => {
   const { threadId, userId } = req.query;
   let query = Post.find();
+  
+  // Optimized queries using compound indexes
   if (threadId) query = query.where({ threadId }).sort({ number: 1 }); 
   else if (userId) query = query.where({ authorId: userId }).sort({ createdAt: -1 }); 
   else query = query.limit(100); 
+  
   const items = await query.lean().exec();
   res.json(items);
 }));
 
+// Caching static data types
+app.get('/api/categories', cacheControl(120), handle(async (req, res) => {
+    const items = await Category.find().sort({ order: 1 }).lean();
+    res.json(items);
+}));
+app.get('/api/prefixes', cacheControl(120), handle(async (req, res) => {
+    const items = await Prefix.find().lean();
+    res.json(items);
+}));
+app.get('/api/roles', cacheControl(60), handle(async (req, res) => {
+    const items = await Role.find().lean();
+    res.json(items);
+}));
+
+// Write operations (No Cache)
 const createCrud = (path, Model) => {
-  if (!['forums', 'threads', 'posts', 'users'].includes(path)) {
-    app.get(`/api/${path}`, handle(async (req, res) => {
-      const items = await Model.find().sort({ order: 1 }).lean();
-      res.json(items);
-    }));
-  }
+  // Read ops handled above with caching
+  
   app.post(`/api/${path}`, handle(async (req, res) => {
     if (!req.body.id) req.body.id = `${path[0]}${Date.now()}`;
     

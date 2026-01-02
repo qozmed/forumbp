@@ -13,7 +13,7 @@ interface Props {
   post: Post;
 }
 
-const PostItem: React.FC<Props> = ({ post }) => {
+const PostItem: React.FC<Props> = React.memo(({ post }) => {
   const { getUser, currentUser, toggleLike, users, editPost, deletePost, getUserRoles, hasPermission, getThread } = useForum();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
@@ -254,6 +254,6 @@ const PostItem: React.FC<Props> = ({ post }) => {
       </div>
     </div>
   );
-};
+});
 
 export default PostItem;
