@@ -85,6 +85,11 @@ export const mongo = {
     const list = await apiCall('/users');
     return (list || []).reduce((acc: any, u: User) => { acc[u.id] = u; return acc; }, {});
   },
+  
+  // NEW: Get full user data for session user
+  async getUserSync(userId: string): Promise<User> {
+    return apiCall(`/users/${userId}/sync`);
+  },
 
   // Mutations (Standard CRUD)
   async addCategory(d: Category) { return apiCall('/categories', { method: 'POST', body: JSON.stringify(d) }); },

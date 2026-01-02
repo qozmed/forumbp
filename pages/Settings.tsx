@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useForum } from '../context/ForumContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Settings, Save, PenTool, Mail, Lock, User, Tag, Clock, Shield, Smartphone, Send } from 'lucide-react';
+import { Settings, Save, PenTool, Mail, Lock, User, Tag, Clock, Shield, Smartphone, Send, RefreshCw } from 'lucide-react';
 import Sidebar from '../components/Layout/Sidebar';
 import ImageUpload from '../components/UI/ImageUpload';
 
 const SettingsPage: React.FC = () => {
-  const { currentUser, updateUser, hasPermission, getTelegramLink, isOfflineMode } = useForum();
+  const { currentUser, updateUser, refreshUserData, hasPermission, getTelegramLink, isOfflineMode } = useForum();
   const { t } = useLanguage();
   
   const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl || '');
@@ -20,6 +20,7 @@ const SettingsPage: React.FC = () => {
   
   const [tgLink, setTgLink] = useState('');
   const [tgLoading, setTgLoading] = useState(false);
+  const [isRefreshingTg, setIsRefreshingTg] = useState(false);
 
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -75,7 +76,14 @@ const SettingsPage: React.FC = () => {
       }
   };
 
+  const handleRefreshStatus = async () => {
+      setIsRefreshingTg(true);
+      await refreshUserData();
+      setTimeout(() => setIsRefreshingTg(false), 500);
+  };
+
   const toggle2FA = async () => {
+      // With the new optimized updateUser, this should be instant in UI
       await updateUser({ ...currentUser, twoFactorEnabled: !currentUser.twoFactorEnabled });
   };
 
@@ -177,6 +185,14 @@ const SettingsPage: React.FC = () => {
                                 <div className="text-sm text-gray-300 font-bold flex items-center gap-2">
                                     <Send className="w-4 h-4 text-blue-400" /> 
                                     Статус Telegram: {currentUser.telegramId ? <span className="text-green-400">Привязан</span> : <span className="text-red-400">Не привязан</span>}
+                                    <button 
+                                        type="button"
+                                        onClick={handleRefreshStatus} 
+                                        className={`ml-2 p-1 text-gray-500 hover:text-white rounded hover:bg-gray-800 transition-colors ${isRefreshingTg ? 'animate-spin text-cyan-400' : ''}`}
+                                        title="Обновить статус"
+                                    >
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                    </button>
                                 </div>
                                 {!currentUser.telegramId && <p className="text-xs text-gray-500 mt-1">Привяжите аккаунт для получения уведомлений и 2FA.</p>}
                             </div>

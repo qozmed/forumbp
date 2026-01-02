@@ -54,8 +54,8 @@ app.use(mongoSanitize());
 
 // 6. CUSTOM RATE LIMITER (Optimized)
 const rateLimits = {
-  general: { window: 60 * 1000, max: 1000 }, // Increased to prevent lag during rapid user actions
-  auth: { window: 15 * 60 * 1000, max: 50 } 
+  general: { window: 60 * 1000, max: 2000 }, // Significantly increased for smooth interactions
+  auth: { window: 15 * 60 * 1000, max: 100 } 
 };
 
 const ipTrackers = {
@@ -168,7 +168,7 @@ const connectDB = async () => {
       family: 4,
       dbName: 'blackproject',
       autoIndex: true, // Auto-build indexes
-      maxPoolSize: 10 // Efficient connection pooling
+      maxPoolSize: 50 // Increased pool size for better concurrency
     });
     console.log('✅ [DB] Connected');
   } catch (err) {
@@ -413,12 +413,14 @@ app.post('/api/user/telegram-link', handle(async (req, res) => {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
-    const user = await User.findOne({ id: userId });
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
     const token = crypto.randomBytes(16).toString('hex');
-    user.connectToken = token;
-    await user.save();
+    const user = await User.findOneAndUpdate(
+        { id: userId }, 
+        { connectToken: token },
+        { new: true }
+    ).lean();
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
     const botName = 'BlackProjectRobot'; 
     const link = `https://t.me/${botName}?start=${token}`;
@@ -442,6 +444,11 @@ app.post('/api/notifications/send', handle(async (req, res) => {
         createdAt: new Date().toISOString()
     };
     targetUser.notifications.unshift(newNotif);
+    
+    // LIMIT HISTORY SIZE TO IMPROVE PERFORMANCE
+    if (targetUser.notifications.length > 50) {
+        targetUser.notifications = targetUser.notifications.slice(0, 50);
+    }
     
     if (targetUser.telegramId && bot) {
         const cleanMsg = message.replace(/<[^>]*>?/gm, ''); 
@@ -473,14 +480,24 @@ app.post('/api/admin/broadcast', handle(async (req, res) => {
     res.json({ sent: sentCount, total: usersWithTg.length });
 }));
 
+// OPTIMIZED USER LIST (Public Info Only)
+app.get('/api/users', handle(async (req, res) => {
+  // EXCLUDE HEAVY FIELDS: notifications, email, ipHistory, connectToken
+  const users = await User.find().select('id username avatarUrl roleId secondaryRoleId isBanned points reactions messages customTitle joinedAt lastActiveAt currentActivity').lean();
+  res.json(users);
+}));
+
+// NEW: PRIVATE USER SYNC (For current user session)
+app.get('/api/users/:id/sync', handle(async (req, res) => {
+  // Returns full user object for the session user (including notifications)
+  const user = await User.findOne({ id: req.params.id }).select('+telegramId +twoFactorEnabled +email').lean();
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json(user);
+}));
+
 app.get('/api/forums', handle(async (req, res) => {
   const forums = await Forum.find().sort({ order: 1 }).lean();
   res.json(forums);
-}));
-
-app.get('/api/users', handle(async (req, res) => {
-  const users = await User.find().select('id username avatarUrl roleId secondaryRoleId isBanned points reactions messages customTitle joinedAt lastActiveAt currentActivity notifications telegramId twoFactorEnabled').lean();
-  res.json(users);
 }));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

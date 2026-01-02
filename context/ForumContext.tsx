@@ -56,6 +56,7 @@ interface ForumContextType {
   toggleThreadLock: (threadId: string) => Promise<void>; 
   toggleThreadPin: (threadId: string) => Promise<void>;  
   updateUser: (user: User) => Promise<void>;
+  refreshUserData: () => Promise<void>; // NEW: Manual refresh for user data
   updateUserActivity: (activity: UserActivity) => Promise<void>;
   banUser: (userId: string, isBanned: boolean) => Promise<void>;
   markNotificationsRead: () => Promise<void>;
@@ -137,7 +138,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         api.getForums(),
         // @ts-ignore
         api.getThreads(undefined, 20),
-        api.getUsers(),
+        api.getUsers(), // Now returns lightweight user list (public info only)
         api.getPrefixes(),
         api.getRoles()
       ]);
@@ -155,9 +156,21 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
          return Array.from(map.values());
       });
 
+      // Handle Current User Session and Sync Private Data
       const sid = api.getSession();
-      if(sid && u && u[sid]) setCurrentUser(u[sid]);
-      else { if(sid) api.clearSession(); setCurrentUser(null); }
+      if(sid) {
+          try {
+             // @ts-ignore
+             const myself = await api.getUserSync(sid); // New method to get full user data (with notifications)
+             setCurrentUser(myself);
+          } catch(e) {
+             console.error("Session sync failed:", e);
+             api.clearSession();
+             setCurrentUser(null);
+          }
+      } else {
+          setCurrentUser(null);
+      }
 
       setFatalError(null);
       if (initial) setIsReady(true);
@@ -171,6 +184,25 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     } finally {
       if (initial) setLoading(false);
     }
+  };
+
+  const refreshUserData = async () => {
+      try {
+          const api = getApi(isOffline);
+          // @ts-ignore
+          // Sync current user first
+          if (currentUser) {
+              // @ts-ignore
+              const myself = await api.getUserSync(currentUser.id);
+              setCurrentUser(myself);
+          }
+          // Then refresh global list if needed (optional)
+          // @ts-ignore
+          const u = await api.getUsers();
+          setUsers(u || {});
+      } catch (e) {
+          console.error("Failed to refresh user data", e);
+      }
   };
 
   const loadThreadsForForum = async (forumId: string): Promise<Thread[]> => {
@@ -516,7 +548,26 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const toggleThreadLock = (tid: string) => mutate(async () => { const t = getThread(tid); if(t) await mutationApi.updateThread({...t, isLocked: !t.isLocked}); });
   const toggleThreadPin = (tid: string) => mutate(async () => { const t = getThread(tid); if(t) await mutationApi.updateThread({...t, isPinned: !t.isPinned}); });
-  const updateUser = (u: User) => mutate(() => mutationApi.updateUser(u));
+  
+  // OPTIMIZED UPDATE USER (Fully Optimistic)
+  const updateUser = async (u: User) => {
+      // 1. Immediate Local Update
+      setUsers(prev => ({ ...prev, [u.id]: u }));
+      if (currentUser && currentUser.id === u.id) {
+          setCurrentUser(u);
+      }
+      
+      // 2. Background Sync
+      try {
+          await mutationApi.updateUser(u);
+      } catch (e) {
+          console.error(e);
+          // Revert on error
+          alert("Ошибка сохранения. Данные будут перезагружены.");
+          loadData(false);
+      }
+  };
+
   const banUser = (uid: string, v: boolean) => mutate(async () => { const u = users[uid]; if(u) await mutationApi.updateUser({...u, isBanned: v}); });
   
   const markNotificationsRead = () => mutate(async () => { if(currentUser) await mutationApi.updateUser({...currentUser, notifications: currentUser.notifications.map(n=>({...n, isRead:true}))}); });
@@ -590,7 +641,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       getForum, getThread, getPostsByThread, getPostsByUser, getForumsByCategory, getSubForums, getUser, getUserRole, getUserRoles, hasPermission,
       login, verify2FA, register, logout, getTelegramLink,
       createThread, updateThread, deleteThread, replyToThread, editPost, deletePost, toggleLike, toggleThreadLock, toggleThreadPin,
-      updateUser, updateUserActivity, banUser, markNotificationsRead, clearNotifications, deleteNotification,
+      updateUser, refreshUserData, updateUserActivity, banUser, markNotificationsRead, clearNotifications, deleteNotification,
       adminCreateCategory, adminUpdateCategory, adminMoveCategory, adminDeleteCategory, 
       adminCreateForum, adminUpdateForum, adminMoveForum, adminDeleteForum, adminUpdateUserRole,
       adminMoveThread, adminReorderThread,

@@ -210,6 +210,14 @@ export const db = {
     return getTable(DB_KEYS.USERS);
   },
   
+  // NEW: Mock sync just returns the user from local storage
+  async getUserSync(userId: string): Promise<User> {
+    await delay();
+    const users = getTable<Record<string, User>>(DB_KEYS.USERS);
+    if (users[userId]) return users[userId];
+    throw new Error('User not found');
+  },
+  
   async addUser(user: User): Promise<User> {
     await delay();
     const users = getTable<Record<string, User>>(DB_KEYS.USERS);
