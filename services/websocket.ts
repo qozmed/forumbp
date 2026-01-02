@@ -1,13 +1,12 @@
-import { APP_CONFIG } from '../config';
-
 class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 1000;
+  private maxReconnectAttempts = 10;
+  private reconnectDelay = 2000;
   private listeners: Map<string, Set<(data: any) => void>> = new Map();
   private userId: string | null = null;
   private isConnecting = false;
+  private pingInterval: any = null;
 
   connect(userId: string | null) {
     if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)) return;
@@ -15,10 +14,15 @@ class WebSocketService {
     this.userId = userId;
     this.isConnecting = true;
     
+    // Dynamically determine protocol based on current page
+    // If on HTTPS, must use WSS. If HTTP, use WS.
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
+    // Connect to /ws on the same host (handled by Vite proxy in dev, or Nginx/Express in prod)
     const wsUrl = `${protocol}//${host}/ws`;
     
+    console.log(`[WS] Connecting to ${wsUrl}...`);
+
     try {
       this.ws = new WebSocket(wsUrl);
       
@@ -27,15 +31,19 @@ class WebSocketService {
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         
+        // Start Ping
+        this.startPing();
+
         // Authenticate if user is logged in
-        if (userId) {
-          this.send({ type: 'auth', userId });
+        if (this.userId) {
+          this.send({ type: 'auth', userId: this.userId });
         }
       };
       
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (data.type === 'pong') return; // Ignore pongs
           this.handleMessage(data);
         } catch (err) {
           console.error('[WS] Parse error:', err);
@@ -47,32 +55,51 @@ class WebSocketService {
         this.isConnecting = false;
       };
       
-      this.ws.onclose = () => {
-        console.log('[WS] Disconnected');
+      this.ws.onclose = (e) => {
+        console.log(`[WS] Disconnected (Code: ${e.code})`);
         this.isConnecting = false;
+        this.stopPing();
         this.ws = null;
         
-        // Auto-reconnect if user is logged in
-        if (userId && this.reconnectAttempts < this.maxReconnectAttempts) {
+        // Auto-reconnect with exponential backoff
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts);
+          console.log(`[WS] Reconnecting in ${Math.round(delay)}ms...`);
           setTimeout(() => {
             this.reconnectAttempts++;
-            this.connect(userId);
-          }, this.reconnectDelay * this.reconnectAttempts);
+            this.connect(this.userId);
+          }, delay);
         }
       };
     } catch (err) {
-      console.error('[WS] Connection error:', err);
+      console.error('[WS] Connection creation error:', err);
       this.isConnecting = false;
     }
   }
 
   disconnect() {
+    this.stopPing();
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
     this.userId = null;
     this.reconnectAttempts = 0;
+    this.isConnecting = false;
+  }
+
+  private startPing() {
+    this.stopPing();
+    this.pingInterval = setInterval(() => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'ping' }));
+        }
+    }, 25000); // 25s keepalive
+  }
+
+  private stopPing() {
+    if (this.pingInterval) clearInterval(this.pingInterval);
+    this.pingInterval = null;
   }
 
   send(data: any) {
@@ -106,6 +133,8 @@ class WebSocketService {
       this.emit('thread_update', data);
     } else if (data.type === 'forum_updated' || data.type === 'forum_deleted') {
       this.emit('forum_update', data);
+    } else if (data.type === 'user_activity') {
+      this.emit('user_activity', data);
     } else {
       // Emit generic event
       this.emit(data.type, data);
@@ -143,4 +172,3 @@ class WebSocketService {
 }
 
 export const wsService = new WebSocketService();
-
