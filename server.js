@@ -54,8 +54,8 @@ app.use(mongoSanitize());
 
 // 6. CUSTOM RATE LIMITER (Optimized)
 const rateLimits = {
-  general: { window: 60 * 1000, max: 3000 }, // High limit for smooth UX
-  auth: { window: 15 * 60 * 1000, max: 100 } 
+  general: { window: 60 * 1000, max: 5000 }, // Max performance
+  auth: { window: 15 * 60 * 1000, max: 200 } 
 };
 
 const ipTrackers = {
@@ -162,7 +162,7 @@ const connectDB = async () => {
       family: 4,
       dbName: 'blackproject',
       autoIndex: true, 
-      maxPoolSize: 50 
+      maxPoolSize: 100 // Maximized for speed
     });
     console.log('✅ [DB] Connected');
   } catch (err) {
@@ -372,7 +372,8 @@ app.post('/api/auth/login', limitReq('auth'), handle(async (req, res) => {
   email = sanitizeString(email);
   const ip = getClientIp(req);
 
-  const user = await User.findOne({ email }).select('+hash +salt +ipHistory +telegramId +twoFactorEnabled +tempCode +tempCodeExpires');
+  // OPTIMIZATION: Use lean() to avoid hydrating heavy Mongoose object
+  const user = await User.findOne({ email }).select('+hash +salt +ipHistory +telegramId +twoFactorEnabled +tempCode +tempCodeExpires').lean();
   
   if (!user || !user.salt || !verifyPassword(password, user.hash, user.salt)) {
     return res.status(401).json({ error: 'Invalid credentials' });
@@ -382,42 +383,40 @@ app.post('/api/auth/login', limitReq('auth'), handle(async (req, res) => {
 
   // 2FA Check
   if (user.twoFactorEnabled && user.telegramId && bot) {
-      let code = user.tempCode;
       const now = new Date();
-      let shouldSend = true;
+      let code = user.tempCode;
+      
+      // Reuse existing code if valid (prevents spam and DB writes)
+      const isCodeValid = code && user.tempCodeExpires && new Date(user.tempCodeExpires) > now;
 
-      // Reuse existing code if valid (prevents spam and writes)
-      if (code && user.tempCodeExpires && user.tempCodeExpires > now) {
-          // Valid code exists. 
-          // Optional: Only send telegram msg if it was created > 30s ago (simple debounce), 
-          // but sticking to existing logic, we usually send it. 
-          // The key improvement here is NOT writing to DB if code exists.
-      } else {
-          // Generate new code
+      if (!isCodeValid) {
           code = generateCode();
-          user.tempCode = code;
-          user.tempCodeExpires = new Date(Date.now() + 5 * 60 * 1000); 
-          await user.save(); // Only save if we generated new code
+          // FAST UPDATE: Use atomic update instead of full save
+          await User.updateOne(
+              { id: user.id }, 
+              { 
+                  tempCode: code, 
+                  tempCodeExpires: new Date(Date.now() + 5 * 60 * 1000) 
+              }
+          );
       }
 
-      try {
-          // Sending message is fast, but waiting for it can slow down response. 
-          // We await it to ensure delivery, but in high load, this could be fire-and-forget.
-          await bot.sendMessage(user.telegramId, `🔐 <b>Код:</b> <code>${code}</code>`, { parse_mode: 'HTML' });
-          return res.status(200).json({ require2fa: true, userId: user.id });
-      } catch (e) {
-          // If Telegram fails, still return 2FA requirement (user might have old code or can retry)
-          console.error("Telegram send failed:", e.message);
-          return res.status(200).json({ require2fa: true, userId: user.id }); 
-      }
+      // ASYNC TELEGRAM: Don't await the bot message. Send response immediately.
+      // This is the key fix for "slow login".
+      bot.sendMessage(user.telegramId, `🔐 <b>Код:</b> <code>${code}</code>`, { parse_mode: 'HTML' })
+         .catch(e => console.error("TG Send Error (Background):", e.message));
+
+      return res.status(200).json({ require2fa: true, userId: user.id });
   }
 
-  if (!user.ipHistory) user.ipHistory = [];
-  user.ipHistory.unshift(ip);
-  if (user.ipHistory.length > 20) user.ipHistory = user.ipHistory.slice(0, 20);
-  await user.save();
+  // LOG HISTORY (ASYNC): Update IP without waiting
+  User.updateOne(
+      { id: user.id }, 
+      { $push: { ipHistory: { $each: [ip], $slice: -20, $position: 0 } } } 
+  ).exec();
   
-  const u = user.toObject();
+  // Clean user object for response
+  const u = { ...user };
   delete u.hash; delete u.salt; delete u.ipHistory; 
   delete u.tempCode; delete u.tempCodeExpires; delete u.connectToken;
   
@@ -428,7 +427,7 @@ app.post('/api/auth/verify-2fa', limitReq('auth'), handle(async (req, res) => {
     const { userId, code } = req.body;
     const ip = getClientIp(req);
 
-    const user = await User.findOne({ id: userId }).select('+tempCode +tempCodeExpires +ipHistory');
+    const user = await User.findOne({ id: userId }).select('+tempCode +tempCodeExpires').lean();
     
     if (!user) return res.status(404).json({ error: 'User not found' });
     
@@ -436,19 +435,22 @@ app.post('/api/auth/verify-2fa', limitReq('auth'), handle(async (req, res) => {
         return res.status(400).json({ error: 'Invalid code' });
     }
 
-    if (new Date() > user.tempCodeExpires) {
+    if (new Date() > new Date(user.tempCodeExpires)) {
         return res.status(400).json({ error: 'Code expired' });
     }
 
-    user.tempCode = undefined;
-    user.tempCodeExpires = undefined;
-    if (!user.ipHistory) user.ipHistory = [];
-    user.ipHistory.unshift(ip);
-    await user.save();
+    // ATOMIC UPDATE: Clear code and update IP
+    await User.updateOne(
+        { id: userId },
+        { 
+            $unset: { tempCode: "", tempCodeExpires: "" },
+            $push: { ipHistory: { $each: [ip], $slice: -20, $position: 0 } }
+        }
+    );
 
-    const u = user.toObject();
-    delete u.hash; delete u.salt; delete u.ipHistory; delete u.tempCode; delete u.tempCodeExpires; delete u.connectToken;
-    res.json(u);
+    // Re-fetch clean user for frontend state
+    const cleanUser = await User.findOne({ id: userId }).lean();
+    res.json(cleanUser);
 }));
 
 app.post('/api/user/telegram-link', handle(async (req, res) => {
@@ -485,11 +487,12 @@ app.post('/api/notifications/send', handle(async (req, res) => {
         isRead: false,
         createdAt: new Date().toISOString()
     };
-    targetUser.notifications.unshift(newNotif);
     
-    if (targetUser.notifications.length > 50) {
-        targetUser.notifications = targetUser.notifications.slice(0, 50);
-    }
+    // ATOMIC PUSH
+    User.updateOne(
+        { id: targetUserId },
+        { $push: { notifications: { $each: [newNotif], $slice: -50, $position: 0 } } }
+    ).exec();
     
     if (targetUser.telegramId && bot) {
         const cleanMsg = message.replace(/<[^>]*>?/gm, ''); 
@@ -498,7 +501,6 @@ app.post('/api/notifications/send', handle(async (req, res) => {
         bot.sendMessage(targetUser.telegramId, msg, { parse_mode: 'HTML', disable_web_page_preview: true }).catch(err => console.error("Tg send err", err.message));
     }
 
-    await targetUser.save();
     res.json({ success: true });
 }));
 
@@ -511,12 +513,11 @@ app.post('/api/admin/broadcast', handle(async (req, res) => {
 
     const cleanText = text.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gm, "");
 
-    for (const u of usersWithTg) {
-        try {
-            await bot.sendMessage(u.telegramId, `📢 <b>Новости проекта</b>\n\n${cleanText}`, { parse_mode: 'HTML' });
-            sentCount++;
-        } catch (e) {}
-    }
+    // Async broadcast loop
+    usersWithTg.forEach(u => {
+        bot.sendMessage(u.telegramId, `📢 <b>Новости проекта</b>\n\n${cleanText}`, { parse_mode: 'HTML' }).catch(() => {});
+        sentCount++;
+    });
 
     res.json({ sent: sentCount, total: usersWithTg.length });
 }));

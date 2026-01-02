@@ -120,10 +120,10 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const effectiveOffline = isOffline || forceOffline;
     try {
       if (initial) setLoading(true);
-      if (useMongo && !effectiveOffline) {
+      if (useMongo && !effectiveOffline && initial) { // Only check health on INITIAL load
         const healthy = await mongo.checkHealth();
         if (!healthy) {
-           if (!isOffline && initial) console.warn("⚠️ Server unreachable. Switching to offline mode.");
+           if (!isOffline) console.warn("⚠️ Server unreachable. Switching to offline mode.");
            setIsOffline(true);
            return loadData(initial, true);
         }
@@ -158,7 +158,7 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
       // Handle Current User Session and Sync Private Data
       const sid = api.getSession();
-      if(sid) {
+      if(sid && (!currentUser || initial)) { // Only sync if we don't have user or it's initial load
           try {
              // @ts-ignore
              const myself = await api.getUserSync(sid); 
@@ -166,17 +166,13 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           } catch(e: any) {
              console.error("Session sync failed:", e.message);
              // CRITICAL FIX: Only clear session if user is explicitly not found or unauthorized
-             // Do NOT clear on network errors or generic timeouts
              const msg = e.message || '';
              if (msg.includes('404') || msg.includes('401') || msg.includes('User not found')) {
                  api.clearSession();
                  setCurrentUser(null);
-             } else {
-                 // Keep session token, assume offline/temporary issue
-                 console.warn("Keeping session despite sync error (Network issue?)");
-             }
+             } 
           }
-      } else {
+      } else if (!sid) {
           setCurrentUser(null);
       }
 
