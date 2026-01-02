@@ -372,7 +372,7 @@ app.post('/api/auth/login', limitReq('auth'), handle(async (req, res) => {
   email = sanitizeString(email);
   const ip = getClientIp(req);
 
-  const user = await User.findOne({ email }).select('+hash +salt +ipHistory +telegramId +twoFactorEnabled');
+  const user = await User.findOne({ email }).select('+hash +salt +ipHistory +telegramId +twoFactorEnabled +tempCode +tempCodeExpires');
   
   if (!user || !user.salt || !verifyPassword(password, user.hash, user.salt)) {
     return res.status(401).json({ error: 'Invalid credentials' });
@@ -382,16 +382,33 @@ app.post('/api/auth/login', limitReq('auth'), handle(async (req, res) => {
 
   // 2FA Check
   if (user.twoFactorEnabled && user.telegramId && bot) {
-      const code = generateCode();
-      user.tempCode = code;
-      user.tempCodeExpires = new Date(Date.now() + 5 * 60 * 1000); 
-      await user.save();
+      let code = user.tempCode;
+      const now = new Date();
+      let shouldSend = true;
+
+      // Reuse existing code if valid (prevents spam and writes)
+      if (code && user.tempCodeExpires && user.tempCodeExpires > now) {
+          // Valid code exists. 
+          // Optional: Only send telegram msg if it was created > 30s ago (simple debounce), 
+          // but sticking to existing logic, we usually send it. 
+          // The key improvement here is NOT writing to DB if code exists.
+      } else {
+          // Generate new code
+          code = generateCode();
+          user.tempCode = code;
+          user.tempCodeExpires = new Date(Date.now() + 5 * 60 * 1000); 
+          await user.save(); // Only save if we generated new code
+      }
 
       try {
+          // Sending message is fast, but waiting for it can slow down response. 
+          // We await it to ensure delivery, but in high load, this could be fire-and-forget.
           await bot.sendMessage(user.telegramId, `🔐 <b>Код:</b> <code>${code}</code>`, { parse_mode: 'HTML' });
           return res.status(200).json({ require2fa: true, userId: user.id });
       } catch (e) {
-          return res.status(500).json({ error: 'Failed to send 2FA' });
+          // If Telegram fails, still return 2FA requirement (user might have old code or can retry)
+          console.error("Telegram send failed:", e.message);
+          return res.status(200).json({ require2fa: true, userId: user.id }); 
       }
   }
 

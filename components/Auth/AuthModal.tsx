@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useForum } from '../../context/ForumContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { X, User, Lock, Mail, ShieldCheck } from 'lucide-react';
+import { X, User, Lock, Mail, ShieldCheck, Loader2 } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -15,6 +15,7 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   
   // 2FA State
   const [require2FA, setRequire2FA] = useState(false);
@@ -32,6 +33,7 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
       setRequire2FA(false);
       setTwoFactorCode('');
       setTempUserId('');
+      setIsLoading(false);
     }
   }, [isOpen, initialView]);
 
@@ -40,11 +42,13 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
     // 2FA Verification Flow
     if (require2FA) {
         if (!twoFactorCode) {
             setError("Введите код подтверждения");
+            setIsLoading(false);
             return;
         }
         try {
@@ -55,6 +59,8 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
             setRequire2FA(false); setTwoFactorCode('');
         } catch (err: any) {
             setError(err.message || 'Неверный код');
+        } finally {
+            setIsLoading(false);
         }
         return;
     }
@@ -63,11 +69,13 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
     if (isRegistering) {
         if (!username || !email || !password) {
             setError(t('auth.error.required'));
+            setIsLoading(false);
             return;
         }
     } else {
         if (!email || !password) {
             setError(t('auth.error.required'));
+            setIsLoading(false);
             return;
         }
     }
@@ -90,6 +98,8 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -182,8 +192,10 @@ const AuthModal: React.FC<Props> = ({ isOpen, onClose, initialView = 'login' }) 
 
           <button 
             type="submit" 
-            className="w-full py-3 bg-white text-black font-bold rounded shadow hover:bg-gray-200 transition-all transform hover:scale-[1.01]"
+            disabled={isLoading}
+            className="w-full py-3 bg-white text-black font-bold rounded shadow hover:bg-gray-200 transition-all transform hover:scale-[1.01] flex justify-center items-center gap-2 disabled:opacity-50 disabled:scale-100"
           >
+            {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
             {require2FA ? 'Подтвердить' : (isRegistering ? t('auth.register') : t('auth.login'))}
           </button>
 

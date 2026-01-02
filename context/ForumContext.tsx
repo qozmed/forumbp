@@ -161,12 +161,20 @@ export const ForumProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       if(sid) {
           try {
              // @ts-ignore
-             const myself = await api.getUserSync(sid); // New method to get full user data (with notifications)
+             const myself = await api.getUserSync(sid); 
              setCurrentUser(myself);
-          } catch(e) {
-             console.error("Session sync failed:", e);
-             api.clearSession();
-             setCurrentUser(null);
+          } catch(e: any) {
+             console.error("Session sync failed:", e.message);
+             // CRITICAL FIX: Only clear session if user is explicitly not found or unauthorized
+             // Do NOT clear on network errors or generic timeouts
+             const msg = e.message || '';
+             if (msg.includes('404') || msg.includes('401') || msg.includes('User not found')) {
+                 api.clearSession();
+                 setCurrentUser(null);
+             } else {
+                 // Keep session token, assume offline/temporary issue
+                 console.warn("Keeping session despite sync error (Network issue?)");
+             }
           }
       } else {
           setCurrentUser(null);
